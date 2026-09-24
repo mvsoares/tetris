@@ -1,0 +1,17 @@
+# Binaries
+/tetris
+/train
+/analyze
+/analyze_losses
+
+# Datasets and logs (keep folder via .gitkeep)
+*.jsonl
+*.log
+!/logs/.gitkeep
+
+# OS / Editor files
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
