@@ -19,16 +19,10 @@ func renderMiniPiece(t engine.TetrominoType) string {
 	color := engine.PieceColors[t]
 	blockStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
 
-	// Find non-empty rows to keep it compact
+	// Every piece is rendered with a consistent height of exactly 2 lines.
+	// For PieceI: row 0 is blank (8 spaces), row 1 has the 4 blocks ("████████").
 	startRow := 0
-	endRow := len(shape)
-	if t == engine.PieceI {
-		startRow = 1
-		endRow = 2
-	} else if len(shape) == 3 {
-		startRow = 0
-		endRow = 2
-	}
+	endRow := 2
 
 	for r := startRow; r < endRow; r++ {
 		rowStr := ""
@@ -120,12 +114,12 @@ func (m *Model) renderBoard() string {
 }
 
 func (m *Model) renderLeftPanel() string {
-	// 1. Hold Box
+	// 1. Hold Box (fixed height)
 	holdContent := "        \n        "
 	if m.game.HoldPiece != nil {
 		holdContent = renderMiniPiece(m.game.HoldPiece.Type)
 	}
-	holdBox := PanelBoxStyle.Width(16).Render(
+	holdBox := PanelBoxStyle.Width(16).Height(4).Render(
 		fmt.Sprintf("%s\n\n%s",
 			HeaderLabelStyle.Render("HOLD [C]"),
 			lipgloss.NewStyle().Align(lipgloss.Center).Render(holdContent),
@@ -133,13 +127,13 @@ func (m *Model) renderLeftPanel() string {
 	)
 
 	// 2. Stats Box
-	actionLine := ""
+	actionLine := " "
 	if m.game.LastAction != "" {
-		actionLine = fmt.Sprintf("\n\n%s", ActionAlertStyle.Render(m.game.LastAction))
+		actionLine = ActionAlertStyle.Render(m.game.LastAction)
 	}
 
 	statsContent := fmt.Sprintf(
-		"%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s%s",
+		"%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s",
 		HeaderLabelStyle.Render("SCORE"),
 		ValueStyle.Render(fmt.Sprintf("%d", m.game.Score)),
 		HeaderLabelStyle.Render("HIGH SCORE"),
@@ -153,27 +147,31 @@ func (m *Model) renderLeftPanel() string {
 		actionLine,
 	)
 
-	statsBox := PanelBoxStyle.Width(16).Render(statsContent)
+	statsBox := PanelBoxStyle.Width(16).Height(15).Render(statsContent)
 
 	return lipgloss.JoinVertical(lipgloss.Left, holdBox, statsBox)
 }
 
 func (m *Model) renderRightPanel() string {
-	// 1. Next Box (shows upcoming 2 pieces to balance vertical height)
+	// 1. Next Box (shows upcoming 2 pieces with fixed height)
 	var nextPreviews []string
-	for i := 0; i < len(m.game.NextQueue) && i < 2; i++ {
-		nextPreviews = append(nextPreviews, renderMiniPiece(m.game.NextQueue[i]))
+	for i := 0; i < 2; i++ {
+		if i < len(m.game.NextQueue) {
+			nextPreviews = append(nextPreviews, renderMiniPiece(m.game.NextQueue[i]))
+		} else {
+			nextPreviews = append(nextPreviews, "        \n        ")
+		}
 	}
 	nextContent := strings.Join(nextPreviews, "\n\n")
 
-	nextBox := PanelBoxStyle.Width(20).Render(
+	nextBox := PanelBoxStyle.Width(20).Height(7).Render(
 		fmt.Sprintf("%s\n\n%s",
 			HeaderLabelStyle.Render("NEXT"),
 			lipgloss.NewStyle().Align(lipgloss.Center).Render(nextContent),
 		),
 	)
 
-	// 2. Controls Box
+	// 2. Controls Box (fixed height)
 	controlsContent := fmt.Sprintf(
 		"%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s",
 		KeyStyle.Render("← / →  "), DescStyle.Render("Mover"),
@@ -190,7 +188,7 @@ func (m *Model) renderRightPanel() string {
 		KeyStyle.Render("Q / Esc"), DescStyle.Render("Sair"),
 	)
 
-	controlsBox := PanelBoxStyle.Width(20).Render(
+	controlsBox := PanelBoxStyle.Width(20).Height(14).Render(
 		fmt.Sprintf("%s\n\n%s",
 			HeaderLabelStyle.Render("CONTROLES"),
 			controlsContent,

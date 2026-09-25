@@ -128,4 +128,54 @@ func TestTetrisCounterInUI(t *testing.T) {
 	}
 }
 
+func TestFixedPanelLayoutStability(t *testing.T) {
+	// 1. Verify renderMiniPiece outputs exactly 2 lines for EVERY tetromino
+	allPieces := append(engine.AllPieces, engine.TetrominoType(""))
+	for _, p := range allPieces {
+		mini := renderMiniPiece(p)
+		lines := strings.Split(mini, "\n")
+		if len(lines) != 2 {
+			t.Errorf("expected piece %s to render exactly 2 lines, got %d:\n%q", p, len(lines), mini)
+		}
+	}
+
+	// 2. Verify right panel height remains 100% constant regardless of pieces in next queue
+	m := NewModel()
+	m.width = 80
+	m.height = 30
+
+	// Case A: Next queue has two I pieces
+	m.game.NextQueue = []engine.TetrominoType{engine.PieceI, engine.PieceI}
+	panelA := m.renderRightPanel()
+	heightA := len(strings.Split(panelA, "\n"))
+
+	// Case B: Next queue has two 2-line pieces (e.g. O and T)
+	m.game.NextQueue = []engine.TetrominoType{engine.PieceO, engine.PieceT}
+	panelB := m.renderRightPanel()
+	heightB := len(strings.Split(panelB, "\n"))
+
+	// Case C: Mixed pieces (e.g. S and I)
+	m.game.NextQueue = []engine.TetrominoType{engine.PieceS, engine.PieceI}
+	panelC := m.renderRightPanel()
+	heightC := len(strings.Split(panelC, "\n"))
+
+	if heightA != heightB || heightB != heightC {
+		t.Errorf("right panel height fluctuated: 2xI=%d, 2xO/T=%d, mixed=%d", heightA, heightB, heightC)
+	}
+
+	// 3. Verify total View() height is stable
+	m.game.NextQueue = []engine.TetrominoType{engine.PieceI, engine.PieceI}
+	viewA := m.View()
+	linesA := len(strings.Split(viewA, "\n"))
+
+	m.game.NextQueue = []engine.TetrominoType{engine.PieceO, engine.PieceT}
+	viewB := m.View()
+	linesB := len(strings.Split(viewB, "\n"))
+
+	if linesA != linesB {
+		t.Errorf("view height changed when pieces had 2-lines: viewA=%d, viewB=%d", linesA, linesB)
+	}
+}
+
+
 
