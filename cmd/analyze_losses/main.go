@@ -94,6 +94,7 @@ func main() {
 	totalDeathHoles := 0
 	totalDeathBumpiness := 0
 	totalMovesAtDeath := 0
+	totalDeathLines := 0
 
 	var moveLengths []int
 	var linesList []int
@@ -112,6 +113,7 @@ func main() {
 		totalDeathHoles += lastM.HolesAfter
 		totalDeathBumpiness += lastM.BumpinessAfter
 		totalMovesAtDeath += lastM.MoveNumber
+		totalDeathLines += lastM.TotalLines
 		moveLengths = append(moveLengths, lastM.MoveNumber)
 		linesList = append(linesList, lastM.TotalLines)
 		heightDist[lastM.MaxHeightAfter]++
@@ -148,7 +150,7 @@ func main() {
 	fmt.Printf("Média de Jogadas / Partida:  %.1f (Min: %d | Mediana: %d | Max: %d)\n",
 		float64(totalMovesAtDeath)/float64(n), moveLengths[0], moveLengths[n/2], moveLengths[n-1])
 	fmt.Printf("Média de Linhas / Partida:   %.1f (Min: %d | Mediana: %d | Max: %d)\n",
-		float64(linesList[len(linesList)-1])/float64(n), linesList[0], linesList[n/2], linesList[n-1])
+		float64(totalDeathLines)/float64(n), linesList[0], linesList[n/2], linesList[n-1])
 	fmt.Println("----------------------------------------------------------------")
 	fmt.Println("ESTADO DO TABULEIRO NA ÚLTIMA JOGADA ANTES DA MORTE:")
 	fmt.Printf("   📏 Altura Máxima Média:      %.2f / 20 linhas\n", float64(totalDeathHeight)/float64(n))

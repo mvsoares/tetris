@@ -207,15 +207,13 @@ func (l *Logger) worker() {
 // LogMove logs a single move asynchronously.
 func (l *Logger) LogMove(m MoveLog) {
 	l.mu.Lock()
-	closed := l.closed
-	drop := l.dropOnFull
-	l.mu.Unlock()
+	defer l.mu.Unlock()
 
-	if closed {
+	if l.closed {
 		return
 	}
 
-	if drop {
+	if l.dropOnFull {
 		select {
 		case l.ch <- m:
 		default:
@@ -229,15 +227,13 @@ func (l *Logger) LogMove(m MoveLog) {
 func (l *Logger) LogSessionEnd(s SessionEndLog) {
 	s.Type = "SESSION_END"
 	l.mu.Lock()
-	closed := l.closed
-	drop := l.dropOnFull
-	l.mu.Unlock()
+	defer l.mu.Unlock()
 
-	if closed {
+	if l.closed {
 		return
 	}
 
-	if drop {
+	if l.dropOnFull {
 		select {
 		case l.ch <- s:
 		default:

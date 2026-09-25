@@ -141,9 +141,11 @@ func GetDynamicCleanupThreshold(b *Board) int {
 
 	threshold := 14 // Base threshold: healthy boards can safely stack higher
 
-	// Holes degrade structural safety severely
+	// Holes degrade structural safety severely. Steepened from 2 to 3 rows/hole: logged
+	// games showed holes jump from ~0.16 avg to ~3.1 right before a top-out, so the AI
+	// must react hard to the *first* hole instead of eroding margin slowly.
 	holes := CountHoles(b)
-	threshold -= holes * 2
+	threshold -= holes * 3
 
 	// Center spires in spawn chute reduce threshold
 	centerH := GetCenterHeight(b)
@@ -151,10 +153,12 @@ func GetDynamicCleanupThreshold(b *Board) int {
 		threshold -= (centerH - 10)
 	}
 
-	// High surface bumpiness reduces threshold
+	// High surface bumpiness reduces threshold. Lowered activation and steepened
+	// (was >14, /3): logged games showed bumpiness jump from ~8.9 avg to ~29.9 right
+	// before a top-out, so a board getting bumpy should shrink the safety margin sooner.
 	bump := GetBumpiness(b)
-	if bump > 14 {
-		threshold -= (bump - 14) / 3
+	if bump > 10 {
+		threshold -= (bump - 10) / 2
 	}
 
 	// Clamp between 8 (emergency defense) and 15 (maximum safe stacking)
@@ -220,13 +224,21 @@ func FindBestMove(g *Game) *AIMove {
 	}
 
 	cleanupMode := IsCleanupMode(g)
+	danger := cleanupMode || GetMaxHeight(g.Board) >= 14
 
 	var nextType TetrominoType
 	if len(g.NextQueue) > 0 {
 		nextType = g.NextQueue[0]
 	}
+	// Only spend the extra ply on the (already known) piece after next when the board
+	// is getting dangerous; this is what lets the AI foresee a notch that a future O/S/Z
+	// can't fill without a hole, instead of discovering it too late.
+	var nextNextType TetrominoType
+	if danger && len(g.NextQueue) > 1 {
+		nextNextType = g.NextQueue[1]
+	}
 
-	bestRot, bestX, bestScore := findBestPlacementWithLookahead(g.Board, g.CurrentPiece, nextType, cleanupMode)
+	bestRot, bestX, bestScore := findBestPlacementWithLookahead(g.Board, g.CurrentPiece, nextType, nextNextType, cleanupMode)
 
 	bestMove := &AIMove{
 		UseHold:        false,
@@ -240,20 +252,27 @@ func FindBestMove(g *Game) *AIMove {
 	if g.CanHold && bestScore < 150000.0 {
 		var candidateHoldType TetrominoType
 		var subsequentNext TetrominoType
+		var subsequentNextNext TetrominoType
 
 		if g.HoldPiece != nil {
 			candidateHoldType = g.HoldPiece.Type
 			subsequentNext = nextType
+			if danger && len(g.NextQueue) > 1 {
+				subsequentNextNext = g.NextQueue[1]
+			}
 		} else if len(g.NextQueue) > 0 {
 			candidateHoldType = g.NextQueue[0]
 			if len(g.NextQueue) > 1 {
 				subsequentNext = g.NextQueue[1]
 			}
+			if danger && len(g.NextQueue) > 2 {
+				subsequentNextNext = g.NextQueue[2]
+			}
 		}
 
 		if candidateHoldType != "" {
 			holdPiece := NewPiece(candidateHoldType)
-			rotH, xH, scoreH := findBestPlacementWithLookahead(g.Board, holdPiece, subsequentNext, cleanupMode)
+			rotH, xH, scoreH := findBestPlacementWithLookahead(g.Board, holdPiece, subsequentNext, subsequentNextNext, cleanupMode)
 
 			// If current piece is I, but cannot clear 4 lines yet and board is safe (< 12 rows),
 			// save it in Hold for the upcoming Tetris!
@@ -297,7 +316,10 @@ type candidatePlacement struct {
 }
 
 // findBestPlacementWithLookahead tests valid placements and evaluates the top candidates with next-piece lookahead.
-func findBestPlacementWithLookahead(b *Board, p *Piece, nextType TetrominoType, cleanupMode bool) (int, int, float64) {
+// When nextNextType is provided (used during dangerous board states), the top few candidates get an
+// additional ply evaluated using the piece known to follow "next", so the AI can see two moves ahead
+// instead of discovering a fatal notch only when the hard-to-place piece (O/S/Z) actually arrives.
+func findBestPlacementWithLookahead(b *Board, p *Piece, nextType, nextNextType TetrominoType, cleanupMode bool) (int, int, float64) {
 	candidates := getCandidatePlacements(b, p, cleanupMode)
 	if len(candidates) == 0 {
 		return 0, 3, -math.MaxFloat64
@@ -319,6 +341,14 @@ func findBestPlacementWithLookahead(b *Board, p *Piece, nextType TetrominoType, 
 		topLimit = len(candidates)
 	}
 
+	// When a deeper (2-ply) lookahead is requested, it must be applied to every
+	// candidate being ranked here, not just some of them: the recursive call returns
+	// an already-blended two-ply score, which is on a different scale than the plain
+	// one-ply score from findBestPlacementSimple. Mixing the two within the same
+	// "combined" comparison would bias the ranking against whichever candidates
+	// happened to get the deeper (and therefore more heavily discounted) evaluation.
+	deep := nextNextType != ""
+
 	nextPiece := NewPiece(nextType)
 	bestCombinedScore := -math.MaxFloat64
 	bestRot := candidates[0].rotation
@@ -326,7 +356,13 @@ func findBestPlacementWithLookahead(b *Board, p *Piece, nextType TetrominoType, 
 
 	for i := 0; i < topLimit; i++ {
 		cand := candidates[i]
-		_, _, nextScore := findBestPlacementSimple(cand.board, nextPiece, cleanupMode)
+
+		var nextScore float64
+		if deep {
+			_, _, nextScore = findBestPlacementWithLookahead(cand.board, nextPiece, nextNextType, "", cleanupMode)
+		} else {
+			_, _, nextScore = findBestPlacementSimple(cand.board, nextPiece, cleanupMode)
+		}
 
 		weight := 0.65
 		if nextScore < -15000.0 {
@@ -666,12 +702,23 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) f
 		}
 	}
 
+	// 3b. Piece-Aware Danger Handling: O/S/Z pieces cannot flatten a single-cell notch
+	// without creating a hole, and logged data shows they account for the large majority
+	// of top-outs. Penalize holes they create extra hard once the stack is already tall.
+	pieceRiskPenalty := 0.0
+	if holes > 0 && maxHeight >= 12 {
+		switch p.Type {
+		case PieceO, PieceS, PieceZ:
+			pieceRiskPenalty = float64(holes) * float64(maxHeight-11) * 4000.0
+		}
+	}
+
 	// 4. Bumpiness & Non-Linear Cliffs
 	// Data showed bumpiness soaring from 13.7 to 34.1 at death, and O/S/Z causing 57.6% of losses
-	bumpinessLimit := 8
-	if cleanupMode {
-		bumpinessLimit = 9
-	}
+	// Cover the full building zone (columns 0-8) in both modes. Previously normal mode
+	// stopped at column 7, leaving the 7-8 pair unscored; logged deaths showed column 7
+	// growing disproportionately tall as a result.
+	bumpinessLimit := 9
 
 	bumpiness := 0
 	cliffPenalty := 0.0
@@ -767,7 +814,8 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) f
 		spawnChutePenalty -
 		float64(aggHeight)*heightWeight -
 		maxHeightPenalty -
-		float64(innerWells)*500.0 +
+		float64(innerWells)*500.0 -
+		pieceRiskPenalty +
 		landingBonus
 
 	return score
