@@ -41,6 +41,9 @@ type Game struct {
 	Triples          int
 	Tetrises         int
 	sessionEnded     bool
+	lockDelayTicks   int
+	lockDelayActive  bool
+	lockResets       int
 }
 
 const (
@@ -74,6 +77,9 @@ func (g *Game) spawnPiece() {
 	g.CanHold = true
 	g.CurrentAIMove = nil
 	g.stuckTicks = 0
+	g.lockDelayActive = false
+	g.lockDelayTicks = 0
+	g.lockResets = 0
 
 	// If spawned piece collides immediately, game over
 	if !g.Board.IsValidPosition(g.CurrentPiece) {
@@ -88,10 +94,14 @@ func (g *Game) MoveLeft() bool {
 	if g.State != StatePlaying || g.CurrentPiece == nil {
 		return false
 	}
-	test := g.CurrentPiece.Clone()
+	test := *g.CurrentPiece
 	test.X--
-	if g.Board.IsValidPosition(test) {
+	if g.Board.IsValidPosition(&test) {
 		g.CurrentPiece.X--
+		if g.lockDelayActive && g.lockResets < 15 {
+			g.lockDelayTicks = 2
+			g.lockResets++
+		}
 		return true
 	}
 	return false
@@ -102,10 +112,14 @@ func (g *Game) MoveRight() bool {
 	if g.State != StatePlaying || g.CurrentPiece == nil {
 		return false
 	}
-	test := g.CurrentPiece.Clone()
+	test := *g.CurrentPiece
 	test.X++
-	if g.Board.IsValidPosition(test) {
+	if g.Board.IsValidPosition(&test) {
 		g.CurrentPiece.X++
+		if g.lockDelayActive && g.lockResets < 15 {
+			g.lockDelayTicks = 2
+			g.lockResets++
+		}
 		return true
 	}
 	return false
@@ -116,14 +130,15 @@ func (g *Game) SoftDrop() bool {
 	if g.State != StatePlaying || g.CurrentPiece == nil {
 		return false
 	}
-	test := g.CurrentPiece.Clone()
+	test := *g.CurrentPiece
 	test.Y++
-	if g.Board.IsValidPosition(test) {
+	if g.Board.IsValidPosition(&test) {
 		g.CurrentPiece.Y++
 		g.addScore(1)
 		return true
 	}
 	// Reached bottom, lock it
+	g.lockDelayActive = false
 	g.lockCurrentPiece()
 	return false
 }
@@ -140,6 +155,7 @@ func (g *Game) HardDrop() int {
 	}
 	g.CurrentPiece.Y = ghostY
 	g.addScore(dropDistance * 2)
+	g.lockDelayActive = false
 	g.lockCurrentPiece()
 	return dropDistance
 }
@@ -149,7 +165,12 @@ func (g *Game) RotateCW() bool {
 	if g.State != StatePlaying || g.CurrentPiece == nil {
 		return false
 	}
-	return g.Board.TryRotate(g.CurrentPiece, 1)
+	rotated := g.Board.TryRotate(g.CurrentPiece, 1)
+	if rotated && g.lockDelayActive && g.lockResets < 15 {
+		g.lockDelayTicks = 2
+		g.lockResets++
+	}
+	return rotated
 }
 
 // RotateCCW rotates the piece 90 degrees counter-clockwise with wall kicks.
@@ -157,7 +178,12 @@ func (g *Game) RotateCCW() bool {
 	if g.State != StatePlaying || g.CurrentPiece == nil {
 		return false
 	}
-	return g.Board.TryRotate(g.CurrentPiece, -1)
+	rotated := g.Board.TryRotate(g.CurrentPiece, -1)
+	if rotated && g.lockDelayActive && g.lockResets < 15 {
+		g.lockDelayTicks = 2
+		g.lockResets++
+	}
+	return rotated
 }
 
 // Hold swaps current piece with hold piece or stores it and spawns next.
@@ -167,6 +193,9 @@ func (g *Game) Hold() bool {
 	}
 
 	g.UsedHoldThisTurn = true
+	g.lockDelayActive = false
+	g.lockDelayTicks = 0
+	g.lockResets = 0
 	currentType := g.CurrentPiece.Type
 	if g.HoldPiece == nil {
 		g.HoldPiece = NewPiece(currentType)
@@ -186,21 +215,45 @@ func (g *Game) Hold() bool {
 	return true
 }
 
-// Tick represents the standard gravity cycle step.
+// Tick represents the standard gravity cycle step with lock delay support for manual play.
 func (g *Game) Tick() bool {
 	if g.State != StatePlaying || g.CurrentPiece == nil {
 		return false
 	}
 
-	test := g.CurrentPiece.Clone()
+	test := *g.CurrentPiece
 	test.Y++
-	if g.Board.IsValidPosition(test) {
+	if g.Board.IsValidPosition(&test) {
 		g.CurrentPiece.Y++
+		testGround := *g.CurrentPiece
+		testGround.Y++
+		if g.Board.IsValidPosition(&testGround) {
+			g.lockDelayActive = false
+			g.lockDelayTicks = 0
+		}
 		return true
 	}
 
-	g.lockCurrentPiece()
-	return false
+	// Piece is grounded
+	if g.AutoPlay {
+		g.lockCurrentPiece()
+		return false
+	}
+
+	// Manual play: Lock delay gives player time to slide/rotate
+	if !g.lockDelayActive {
+		g.lockDelayActive = true
+		g.lockDelayTicks = 2 // ~500ms at typical gravity
+		return true
+	}
+
+	g.lockDelayTicks--
+	if g.lockDelayTicks <= 0 {
+		g.lockDelayActive = false
+		g.lockCurrentPiece()
+		return false
+	}
+	return true
 }
 
 func (g *Game) lockCurrentPiece() {
