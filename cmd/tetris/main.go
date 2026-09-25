@@ -17,7 +17,7 @@ import (
 
 func main() {
 	trainMode := flag.Bool("train", false, "Executa simulações em background para gerar logs")
-	workers := flag.Int("workers", 0, "Número de partidas simultâneas em background (1 a 20)")
+	workers := flag.Int("workers", 0, "Número de partidas simultâneas em background (1 a 50)")
 	games := flag.Int("games", 100, "Total de partidas no modo de treino em background")
 	logFile := flag.String("file", "logs/plays.jsonl", "Caminho do arquivo de logs (.jsonl)")
 	flag.Parse()
@@ -25,10 +25,10 @@ func main() {
 	if *trainMode || *workers > 0 {
 		w := *workers
 		if w <= 0 {
-			w = 20
+			w = 50
 		}
-		if w > 20 {
-			w = 20
+		if w > 50 {
+			w = 50
 		}
 		runBackgroundTrain(w, *games, *logFile)
 		return

@@ -52,12 +52,12 @@ func TestSimulatorRunsConcurrently(t *testing.T) {
 }
 
 func TestSimulatorWorkersClamping(t *testing.T) {
-	sim, err := New(Config{Workers: 50})
+	sim, err := New(Config{Workers: 100})
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
-	if sim.config.Workers != 20 {
-		t.Errorf("expected workers to be clamped to 20, got %d", sim.config.Workers)
+	if sim.config.Workers != 50 {
+		t.Errorf("expected workers to be clamped to 50, got %d", sim.config.Workers)
 	}
 
 	simZero, err := New(Config{Workers: 0})

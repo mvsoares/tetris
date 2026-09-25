@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	workers := flag.Int("workers", 20, "Número de partidas simultâneas em background (1 a 20)")
+	workers := flag.Int("workers", 50, "Número de partidas simultâneas em background (1 a 50)")
 	totalGames := flag.Int("games", 100, "Total de partidas a simular (0 para contínuo até Ctrl+C)")
 	maxMoves := flag.Int("max-moves", 10000, "Limite máximo de jogadas/linhas por partida")
 	logFile := flag.String("file", "logs/plays.jsonl", "Caminho do arquivo de log (.jsonl)")
@@ -24,9 +24,9 @@ func main() {
 	if *workers < 1 {
 		*workers = 1
 	}
-	if *workers > 20 {
-		fmt.Printf("⚠️  Limite máximo é 20 workers simultâneos. Ajustando para 20.\n")
-		*workers = 20
+	if *workers > 50 {
+		fmt.Printf("⚠️  Limite máximo é 50 workers simultâneos. Ajustando para 50.\n")
+		*workers = 50
 	}
 
 	cfg := simulator.Config{

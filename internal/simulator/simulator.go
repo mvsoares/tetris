@@ -13,7 +13,7 @@ import (
 
 // Config configures the background simulation runner.
 type Config struct {
-	Workers         int    // Number of concurrent worker games (up to 20)
+	Workers         int    // Number of concurrent worker games (up to 50)
 	TotalGames      int    // Target games to play (0 for infinite until cancelled)
 	MaxMovesPerGame int    // Safety cap per game (default: 2000)
 	LogPath         string // Destination JSONL path
@@ -49,13 +49,13 @@ type Simulator struct {
 	startTime time.Time
 }
 
-// New creates a new Simulator with up to 20 workers.
+// New creates a new Simulator with up to 50 workers.
 func New(cfg Config) (*Simulator, error) {
 	if cfg.Workers < 1 {
 		cfg.Workers = 1
 	}
-	if cfg.Workers > 20 {
-		cfg.Workers = 20
+	if cfg.Workers > 50 {
+		cfg.Workers = 50
 	}
 	if cfg.MaxMovesPerGame <= 0 {
 		cfg.MaxMovesPerGame = 10000

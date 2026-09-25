@@ -21,8 +21,8 @@ Inclui um **Auto-Play com IA Heurística Adaptativa**, um **motor de simulação
   - **Lookahead de 2 camadas**: Avalia a peça atual e a próxima peça para evitar bloqueios de relevo.
   - **Heurística Dinâmica de Perigo**: Substitui limiares rígidos por análise contínua de terreno, buracos e proteção do corredor de spawn (colunas 3 a 6).
 - ⚡ **Simulador Headless em Background (`./train`)**:
-  - Worker pool concorrente com até **20 partidas paralelas** usando todas as threads da CPU.
-  - Throughput de **> 4.000 jogadas/segundo**.
+  - Worker pool concorrente com até **50 partidas paralelas** usando todas as threads da CPU.
+  - Throughput de **> 9.000 jogadas/segundo**.
 - 💾 **Logger Assíncrono com Buffer de 100 MB**:
   - Buffer de gravação de 100 MB via `bufio.Writer` e canal em fila de 131.072 itens.
   - Grava datasets completos em JSON Lines (`.jsonl`) com matriz `20x10`, relevo, buracos e pontuação sem penalizar o framerate.
@@ -116,7 +116,7 @@ Gere centenas de milhares de jogadas em alta velocidade para datasets de aprendi
 ./train -clean -games 50 -workers 10
 
 # Modo contínuo (roda sem parar até pressionar Ctrl+C):
-./train -games 0 -workers 20
+./train -games 0 -workers 50
 ```
 
 ### 3. Analisar o Dataset de Jogadas (`./analyze`)
