@@ -12,8 +12,12 @@ type Randomizer struct {
 }
 
 func NewRandomizer() *Randomizer {
+	return NewRandomizerWithSeed(time.Now().UnixNano())
+}
+
+func NewRandomizerWithSeed(seed int64) *Randomizer {
 	r := &Randomizer{
-		rng: rand.New(rand.NewSource(time.Now().UnixNano())),
+		rng: rand.New(rand.NewSource(seed)),
 	}
 	r.refill()
 	return r

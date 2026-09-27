@@ -2,7 +2,9 @@
 
 Uma implementação moderna, fluida e de alto desempenho do clássico **Tetris** para terminal, desenvolvida em **Go** com a arquitetura [Bubble Tea](https://github.com/charmbracelet/bubbletea) (The Elm Architecture) e estilizada com [Lipgloss](https://github.com/charmbracelet/lipgloss).
 
-Inclui um **Auto-Play com IA Heurística Adaptativa**, um **motor de simulação headless concorrente** capaz de processar mais de 4.000 jogadas/segundo, um **logger assíncrono com buffer de 100 MB** para geração de datasets JSONL e ferramentas CLI de análise profunda de partidas e derrotas.
+Inclui um **Auto-Play com IA Heurística Adaptativa**, um **motor de simulação headless concorrente**, um **logger assíncrono com buffer configurável** para geração de datasets JSONL e ferramentas CLI de análise profunda de partidas e derrotas. O desempenho depende da política, do modo de simulação e do hardware.
+
+Veja o [histórico de alterações](CHANGELOG.md) e os [resultados dos benchmarks](benchmarks/README.md).
 
 ---
 
@@ -18,14 +20,17 @@ Inclui um **Auto-Play com IA Heurística Adaptativa**, um **motor de simulação
   - **Gravidade Progressiva**: A velocidade de queda aumenta a cada 10 linhas limpas.
 - 🤖 **Auto-Play Inteligente (IA com Stacking 9-0 & Lookahead)**:
   - **Estratégia 9-0**: Constrói a pilha nas colunas 0 a 8 e mantém a coluna 9 aberta para a chegada da peça `I`.
-  - **Lookahead de 2 camadas**: Avalia a peça atual e a próxima peça para evitar bloqueios de relevo.
+  - **Rotas legais com gravidade**: Planeja movimentos reais e recalcula a rota quando necessário.
+  - **Lookahead adaptativo**: A política v2 avalia a próxima peça e aprofunda a busca quando há perigo.
+  - **Lookahead experimental de 10 peças**: Busca em feixe com hold e remoção de estados duplicados, selecionável pelo menu `M`.
+  - **Modelo local de risco**: Estimativas treinadas com alternativas simuladas; terceira opção experimental no menu. A v2 permanece padrão.
   - **Heurística Dinâmica de Perigo**: Substitui limiares rígidos por análise contínua de terreno, buracos e proteção do corredor de spawn (colunas 3 a 6).
 - ⚡ **Simulador Headless em Background (`./train`)**:
   - Worker pool concorrente com até **50 partidas paralelas** usando todas as threads da CPU.
-  - Throughput de **> 9.000 jogadas/segundo**.
+  - Seeds reproduzíveis e modos `placement` e `gameplay`, com motivos explícitos de encerramento.
 - 💾 **Logger Assíncrono com Buffer de 100 MB**:
   - Buffer de gravação de 100 MB via `bufio.Writer` e canal em fila de 131.072 itens.
-  - Grava datasets completos em JSON Lines (`.jsonl`) com matriz `20x10`, relevo, buracos e pontuação sem penalizar o framerate.
+  - Grava JSON Lines (`.jsonl`) com matrizes `20x10`, relevo, buracos, pontuação e telemetria de planos; a escrita pode aplicar contrapressão quando a fila fica cheia.
 - 📊 **Ferramentas CLI Analíticas**:
   - `./analyze`: Estatísticas agregadas, taxa de Tetris, pontuação e distribuição de linhas.
   - `./analyze_losses`: Diagnóstico profundo da causa raiz de cada Game Over (top-outs, relevo e buracos).
@@ -54,6 +59,8 @@ Inclui um **Auto-Play com IA Heurística Adaptativa**, um **motor de simulação
 ├──────────────────────┼────────────────────────────────────────────────────────┤
 │ B / Tab              │ Ativar / Desativar Auto-Play (IA joga automaticamente) │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
+│ M                    │ Abrir menu para escolher a política de IA             │
+├──────────────────────┼────────────────────────────────────────────────────────┤
 │ 4 / I                │ Forçar chegada de 4 peças de Linha (I) consecutivas    │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
 │ T                    │ Setup Instantâneo de 4 Linhas para Tetris              │
@@ -71,7 +78,8 @@ Inclui um **Auto-Play com IA Heurística Adaptativa**, um **motor de simulação
 ## 📥 Instalação e Compilação
 
 ### Pré-requisitos
-- **Go 1.20** ou superior instalado ([golang.org](https://go.dev/dl/)).
+
+- **Go 1.26.6** ou superior instalado, conforme `go.mod` ([go.dev](https://go.dev/dl/)).
 - Terminal com suporte a cores ANSI / UTF-8.
 - Resolução recomendada de terminal: **64 colunas × 26 linhas** (ou maior).
 
@@ -88,11 +96,12 @@ go build -o tetris ./cmd/tetris
 go build -o train ./cmd/train
 go build -o analyze ./cmd/analyze
 go build -o analyze_losses ./cmd/analyze_losses
+go build -o learn ./cmd/learn
 ```
 
 Ou execute diretamente com `go run`:
 ```bash
-go run cmd/tetris/main.go
+go run ./cmd/tetris
 ```
 
 ---
@@ -104,7 +113,7 @@ Inicie a interface gráfica no seu terminal:
 ```bash
 ./tetris
 ```
-*Dica*: Pressione `B` a qualquer momento durante a partida para ver a IA jogando ao vivo com 9-0 stacking e limpando 4 linhas consecutivas!
+*Dica*: Pressione `M` para escolher entre a IA v2 e o lookahead de 10 peças; depois use `B` ou Tab para ativar o Auto-Play. Alterar a política reinicia a rodada. Após atualizar o código, recompile `./tetris`: executáveis locais não são versionados.
 
 ### 2. Simular Partidas em Background (`./train`)
 Gere centenas de milhares de jogadas em alta velocidade para datasets de aprendizado de máquina ou benchmarks de sobrevivência:
@@ -117,7 +126,73 @@ Gere centenas de milhares de jogadas em alta velocidade para datasets de aprendi
 
 # Modo contínuo (roda sem parar até pressionar Ctrl+C):
 ./train -games 0 -workers 50
+
+# Benchmark reproduzível: exatamente 1000 partidas, até 1000 peças por partida:
+go run ./cmd/train -quiet -games 1000 -workers 16 -seed 1 -max-moves 1000 -file logs/benchmark-placement.jsonl
+
+# Mesmas seeds, usando movimentos reais da IA e gravidade por nível:
+go run ./cmd/train -quiet -mode gameplay -games 1000 -workers 16 -seed 1 -max-moves 1000 -file logs/benchmark-gameplay.jsonl
 ```
+
+A seed da partida de índice `n` é `seed+n`, independentemente da quantidade de workers. O modo padrão `placement` avalia encaixes diretos, sem executar a sequência de movimentos. O modo `gameplay` executa `StepAI` a cada 55 ms virtuais e `Tick` no intervalo de gravidade do nível, sem esperar tempo real. Ele reproduz as regras e os intervalos nominais da interface; atrasos de renderização, processamento e ordem de mensagens no terminal podem produzir diferenças.
+
+A política `heuristic-9-0-v2` busca caminhos legais a partir da posição atual, incluindo wall kicks, rotações nos dois sentidos e gravidade entre ações. Ao detectar desvio do caminho, calcula uma nova rota; não força um hard drop de watchdog. O poço continua reservado no modo normal, mas suas penalidades são reduzidas em emergências. Para comparar com penalidades rígidas também em emergência, use `-reserve-well` (registrado como `heuristic-9-0-v2-strict-well`). A busca usa até 2.048 estados e 32 ações; conserva o primeiro caminho para cada posição/rotação, podendo omitir caminhos mais longos com outra fase de gravidade. A próxima peça ainda usa avaliação aproximada de encaixes no lookahead.
+
+`-max-moves` limita apenas peças colocadas, não linhas limpas. Partidas que atingem esse limite são sobreviventes censurados: não contam como derrotas, e sua duração não deve ser interpretada como tempo até perder.
+
+### Lookahead experimental de 10 colocações
+
+No jogo, pressione **M** para abrir o menu de IA. Escolha a política atual (v2),
+**Lookahead 10 peças** ou **IA híbrida experimental** com ↑/↓ ou 1/2/3 e confirme com Enter. Esc/M cancela.
+O jogo fica congelado enquanto o menu está aberto. Alterar a política reinicia
+a partida, preservando o recorde e o estado do Auto-Play; confirmar a opção já
+ativa não reinicia. Use B/Tab para ligar ou desligar o Auto-Play.
+
+```bash
+go run ./cmd/tetris -lookahead 10 -beam-width 4
+go run ./cmd/train -quiet -mode gameplay -lookahead 10 -beam-width 4 -games 20 -workers 4 -seed 101 -max-moves 1000 -file logs/beam-pilot-new.jsonl
+```
+
+`-lookahead 0` mantém a política v2 padrão. O modo experimental amplia a fila conhecida para 10 peças futuras, também exibidas como letras no painel NEXT. A profundidade conta a peça atual entre as 10 colocações; a peça extra suporta o hold vazio. A sequência gerada não muda. A busca considera hold em cada camada, conserva as melhores continuações distintas até `beam-width` e executa somente a primeira colocação planejada, recalculando após cada peça. Ela não é exaustiva: a poda pode descartar a melhor sequência global, e as colocações futuras ainda usam o modelo aproximado sem rotas completas de gravidade/SRS. `search_depth` e `search_nodes` registram a profundidade efetivamente alcançada e o número de encaixes avaliados nos movimentos com plano.
+
+Os resultados e limites estão no [teste de viabilidade](benchmarks/2026-09-26-lookahead.md). Larguras maiores custam mais CPU/memória e podem atrasar os timers da UI; o simulador usa tempo virtual e não mede esse atraso real. Por isso o modo permanece opt-in.
+
+### Modelo aprendido de probabilidades
+
+`./tetris` carrega `models/move-risk.json` uma vez na inicialização, mas não ativa
+a política híbrida automaticamente. Execute a partir da pasta do projeto, abra
+o menu **M** e escolha **3**, ou use:
+
+```bash
+./tetris -learned -model models/move-risk.json
+./train -quiet -mode gameplay -learned -model models/move-risk.json -games 20 -workers 4 -seed 5001 -max-moves 1000 -file logs/hybrid-new.jsonl
+```
+
+O painel mostra `P50 sim`: estimativa de sobreviver por 50 colocações (incluindo
+a candidata), supondo continuidade pela v2 em **encaixe direto** e futuros 7-bag
+amostrados além da fila conhecida. Não é probabilidade de vitória nem garantia
+para o modo interativo. O JSON de decisão registra estimativas também para
+alternativas legais; elas não precisam somar 100%, pois são probabilidades de
+resultado, não uma distribuição de escolha.
+
+O primeiro modelo melhorou o Brier de validação (0,0215 contra 0,0317 para um
+prior constante), mas o piloto de gameplay em novas seeds teve **16/20**
+sobreviventes contra **19/20** na v2. É experimental e **não é uma melhoria de
+gameplay comprovada**. Modelo ausente, inválido, estado fora dos intervalos de
+treino ou falta de vantagem suficiente mantêm o fallback heurístico.
+
+Treino reproduzível, sempre com arquivos novos:
+
+```bash
+# Coleta decisões com fila, hold, pose, gravidade e alternativas:
+./train -quiet -mode gameplay -games 30 -workers 4 -seed 1001 -max-moves 1000 -buf-kb 4096 -file logs/learning-source-new.jsonl
+# Simula alternativas e publica atomicamente um modelo novo:
+./learn -file logs/learning-source-new.jsonl -out models/move-risk-new.json -decisions 120 -candidates 4 -rollouts 4 -horizon 50 -workers 4 -seed 20260927
+```
+
+O ajuste é offline; jogar não altera os pesos nem inicia treino automaticamente.
+Logs antigos sem `decision` não bastam para esse comando. Consulte a
+[documentação do modelo](models/README.md) e o [piloto de validação](benchmarks/2026-09-27-risk.md).
 
 ### 3. Analisar o Dataset de Jogadas (`./analyze`)
 Gera um relatório estatístico completo das partidas registradas:
@@ -129,88 +204,69 @@ Gera um relatório estatístico completo das partidas registradas:
 Analisa a causa raiz de cada Game Over (qual peça causou o topo, perfil de altura das 10 colunas, número de buracos no momento da morte e se a IA estava em modo defensivo):
 ```bash
 ./analyze_losses -file logs/plays.jsonl
+
+# Estatísticas estruturadas, incluindo percentis e motivos de encerramento:
+go run ./cmd/analyze_losses -file logs/benchmark-gameplay.jsonl -json
 ```
+
+O diagnóstico considera derrota somente sessões com `end_reason` igual a `top_out` ou `no_legal_move`. Limites (`move_limit`), cancelamentos (`cancelled`), saídas (`closed`) e reinícios (`restarted`) são separados. Logs antigos ou sessões incompletas ficam como `unknown`; não é possível recuperar com segurança o motivo de encerramento desses registros. `failed_piece` registra a peça que não conseguiu nascer ou obter um encaixe válido, e não a última peça colocada. Contagens por peça descrevem associação, não provam causalidade.
+
+Cada encerramento registra seed, versão da política, modo de execução e tabuleiro final. Cada jogada registra tabuleiros e métricas antes/depois, recompensa incluindo soft/hard drop e o modo de limpeza da decisão. Linhas ocultas usadas pela busca não geram pontos extras de hard drop. `had_ai_plan`, `ai_plan_matched`, `plan_misses` e `watchdog_drops` permitem medir falhas de execução separadamente da heurística. O analisador verifica sequência de jogadas, recompensas e totais da sessão; registros JSON inválidos e erros de gravação/flush são reportados.
+
+Veja o [benchmark de 26/09/2026](benchmarks/2026-09-26.md), com 1.000 seeds comparadas nos modos de encaixe e gameplay, resultados e prioridades para melhorar o auto-play.
+
+As melhorias foram implementadas na política v2: o [reteste com as mesmas 1.000 seeds](benchmarks/2026-09-26-v2.md) elevou a sobrevivência até 1.000 peças de 41,1% para 88,6%, com zero desvios entre as 951.555 colocações que tinham plano. A participação de Tetrises caiu de 59,9% para 54,5%, enquanto a pontuação média aumentou 49,4%.
 
 ---
 
 ## 🧠 Como Funciona o Algoritmo de Auto-Play (IA Heurística)
 
-O motor de Auto-Play foi desenvolvido com base na análise empírica de **mais de 2.000.000 de jogadas** simuladas concorrentemente. Ele combina **busca exaustiva de encaixes**, **verificação de acessibilidade física**, **projeção lookahead de 1 e 2 camadas (1-ply e 2-ply)** e uma **função de custo multi-critério** que equilibra sobrevivência em alta velocidade e pontuação máxima via *Tetrises* de 4 linhas.
+O Auto-Play combina busca limitada de rotas legais, projeção de peças futuras e uma função heurística que equilibra sobrevivência e Tetrises. A política padrão é `heuristic-9-0-v2`; o lookahead de 10 colocações é experimental. Notas heurísticas não são pontos reais do jogo nem garantias de sobrevivência.
 
 ---
 
 ### 1. Fluxo de Decisão a Cada Turno
 
-Para cada turno de jogo, o algoritmo executa o seguinte pipeline:
+Na política v2:
 
-```text
-[Peça Atual + Fila Next + Hold]
-              │
-              ▼
- 1. Geração de Candidatos (Rotações 0..3 × Colunas -3..9)
-              │
-              ▼
- 2. Filtro de Acessibilidade Física (isReachable: traversals no topo sem colisão com espigões)
-              │
-              ▼
- 3. Projeção de Queda Livre (GetGhostY: calcula posição exata de aterrissagem)
-              │
-              ▼
- 4. Avaliação Heurística de 1º Nível (evaluatePlacement)
-              │
-              ▼
- 5. Lookahead Adaptativo (1-ply nos 5 melhores candidatos; 2-ply quando em perigo)
-              │
-              ▼
- 6. Avaliação da Peça no Hold (swap preventivo para S/Z/O sob terreno acidentado)
-              │
-              ▼
-[Melhor Movimento Selecionado: Rotação Alvo, Coluna X Alvo e Uso de Hold]
-```
+1. Avalia o perigo do tabuleiro e procura rotas a partir da posição real da peça, com movimentos laterais, rotações SRS nos dois sentidos e gravidade entre ações.
+2. Simula o travamento e a limpeza de linhas em cada candidato; avalia altura, buracos, relevo, corredor de nascimento, suporte e integridade do poço.
+3. Compara os melhores candidatos usando a próxima peça e uma camada adicional quando há perigo. Peças futuras usam um modelo de encaixe aproximado.
+4. Compara alternativas de hold e guarda a coluna, a rotação, a altura de aterrissagem, as ações e as posições esperadas.
+5. Executa a rota; se houver desvio ou bloqueio, recalcula em vez de forçar uma queda cega.
 
-1. **Geração de Candidatos**: Testa todas as 4 rotações de SRS e todas as translações horizontais ($X \in [-3, 9]$) onde a peça pode existir.
-2. **Acessibilidade Física (`isReachable`)**: Simula se a peça consegue transitar lateralmente do ponto de spawn ($X=3$ ou $X=4$) até a coluna alvo sem ser bloqueada por espigões que atinjam o topo ($Y \le 0$).
-3. **Simulação de Queda (`GetGhostY`)**: Desce a peça até o ponto mais baixo permitido no tabuleiro, grava o estado resultante em um tabuleiro clonado e calcula as linhas completadas.
-4. **Avaliação Heurística (`evaluatePlacement`)**: Atribui uma pontuação escalar calculando relevo, buracos, altura, espigões e integridade do poço.
-5. **Lookahead Adaptativo de 2 Camadas**:
-   - **1-Ply**: Para os 5 melhores candidatos, simula a colocação da próxima peça conhecida (`NextQueue[0]`), combinando as notas ($Score_{\text{final}} = Score_{\text{cand}} + 0.65 \times Score_{\text{next}}$).
-   - **2-Ply Preditivo**: Quando o tabuleiro entra em estado de atenção (altura $\ge 11$, irregularidade $\ge 14$ ou modo de limpeza ativo), uma segunda camada recursiva projeta também a terceira peça (`NextQueue[1]`). Isso permite à IA antecipar armadilhas e fendas que peças difíceis como `O`, `S` ou `Z` não conseguiriam preencher sem criar buracos.
-6. **Decisão Inteligente de Hold**: Compara o melhor movimento com a peça atual contra o melhor movimento usando a peça no Hold (ou a primeira da fila caso o Hold esteja vazio).
+A busca da rota atual é limitada a 2.048 estados e 32 ações. Conservar a primeira rota por posição/rotação pode excluir uma rota mais longa com outra fase de gravidade.
+
+No modo de 10 colocações, uma busca em feixe substitui o ranqueamento adaptativo. Ela considera hold em cada camada, soma notas com desconto de 0,85 por profundidade e conserva até quatro estados distintos por padrão. Cores não fazem parte da identidade do estado; ocupação, peça atual, hold e posição na fila fazem. Apenas a primeira colocação é executada antes de uma nova busca.
 
 ---
 
 ### 2. A Estratégia 9-0 Stacking & As 4 Regras de Ouro do Poço
 
-O empilhamento **9-0** constrói a estrutura do jogo exclusivamente nas colunas de **0 a 8**, preservando a **coluna 9** permanentemente vazia como um poço vertical dedicado para pontuar *Tetrises* de 4 linhas com a peça `I`.
+O empilhamento **9-0** privilegia as colunas **0 a 8** e reserva a **coluna 9** para Tetrises com a peça `I`. Essa preferência é expressa por penalidades, não por proibições absolutas:
 
-Para impedir que a IA obstrua ou enterre o poço, quatro regras invioláveis foram codificadas na função de utilidade:
+1. **I vertical no poço**: limpar quatro linhas recebe forte recompensa; limpezas parciais ou blocos residuais têm penalidades.
+2. **Espigões na coluna 9**: a nota cai quando a coluna 9 supera a coluna 8.
+3. **Fechamento do poço**: cobrir vazios na coluna 9 recebe uma penalidade alta.
+4. **Profundidade e acesso lateral**: poços excessivamente profundos e espigões próximos reduzem a nota.
 
-1. **Uso Exclusivo de Linha Vertical para Tetris**:
-   - A peça `I` na orientação vertical na coluna 9 só é aceita se completar as **4 linhas completas** ($+180.000\text{ pts} + 90.000\text{ pts}$ de bônus).
-   - Colocar uma peça `I` vertical na coluna 9 limpando menos de 4 linhas deixa blocos residuais formando uma parede na borda direita, recebendo uma penalidade catastrófica ($-120.000\text{ pts}$).
-2. **Regra Anti-Espigão (Coluna 9 $\le$ Coluna 8)**:
-   - A altura da coluna 9 nunca pode exceder a altura da coluna 8. Qualquer bloco excedente recebe penalidade proporcional severa ($-45.000\text{ pts} \times \Delta h$).
-3. **Regra Anti-Teto / Anti-Fechamento**:
-   - É terminantemente proibido colocar qualquer bloco na coluna 9 que deixe espaço vazio abaixo dele (teto sobre o poço). Esta condição recebe penalidade fatal ($-150.000\text{ pts}$), garantindo que peças futuras sempre alcancem o fundo.
-4. **Controle de Profundidade e Acesso Lateral**:
-   - A profundidade ideal do poço é mantida entre 2 e 4 blocos. Se a coluna 8 ficar mais de 4 blocos acima da coluna 9, a IA passa a penalizar aprofundamentos excessivos.
-   - **Supressão do Espigão da Coluna 7**: A coluna 7 não pode formar um dente acima das colunas 6 e 8 ($-3.500\text{ pts} \times \Delta h$), assegurando que as peças possam deslizar suavemente até a coluna 8 e cair no poço sem impedimento.
+Durante a limpeza de emergência, as penalidades do poço são reduzidas para **8%**, permitindo limpezas parciais quando preservar o poço seria arriscado. Penalidades por buracos e bloqueios continuam ativas. `-reserve-well` mantém as penalidades rígidas para comparação. Valores heurísticos não são pontos concedidos ao jogador.
 
 ---
 
 ### 3. Tratamento Especializado por Tipo de Peça (O, S, Z)
 
-A análise minuciosa de mais de 2.000 partidas revelou que as peças `O`, `S` e `Z` eram responsáveis pela grande maioria dos *top-outs*. A IA agora incorpora regras dedicadas para cada uma:
+A IA possui preferências específicas para `O`, `S` e `Z`. Os benchmarks atuais não demonstram que essas peças sejam as principais causas de top-out: a última peça colocada não é necessariamente a que falhou ao nascer.
 
 - 🟨 **Peça O (2×2 - Plataforma Plana)**:
   - Como a peça `O` não rotaciona e possui largura 2, ela exige uma base plana de duas células adjacentes de mesma altura ($\Delta h = 0$).
-  - **Bônus de Plataforma Nivelada**: Recebe $+3.500\text{ pts}$ quando encaixada sobre duas colunas perfeitamente niveladas.
+  - **Bônus de Plataforma Nivelada**: Recebe bônus heurístico de 3.500 quando há suporte nivelado, medido no tabuleiro **antes** da colocação.
   - **Penalidade de Degrau**: Penaliza severamente ($-3.500\text{ pts} \times \Delta h$) o encaixe sobre degraus de altura $\ge 2$, que deixariam a peça suspensa criando buracos ou espigões.
-  - **Hold Preventivo para `O`**: Em terrenos com alta irregularidade ($\ge 12$) sem superfícies planas de 2 células, a peça `O` é automaticamente guardada no Hold em troca de uma peça flexível (`T`, `J`, `L`, `I`).
+  - **Hold Preventivo para `O`**: Em terrenos com alta irregularidade ($\ge 12$) sem superfícies planas de 2 células, a política v2 favorece guardar `O` no hold quando uma alternativa flexível tem nota suficientemente próxima.
 - 🟩 **Peça S e 🟥 Peça Z (Alinhamento Horizontal & Hold)**:
   - Peças diagonais causam problemas graves quando posicionadas verticalmente em espaços apertados, pois sua cauda inferior fica suspensa sobre vazios.
   - **Preferência Horizontal**: Posições horizontais recebem bônus ($+1.500\text{ pts}$), enquanto orientações verticais em terrenos irregulares são fortemente desencorajadas ($-3.500\text{ pts}$).
-  - **Swap de Emergência no Hold**: Se uma peça `S` ou `Z` chega com o tabuleiro sob estresse (altura $\ge 9$, irregularidade $\ge 8$ ou presença de buracos), a IA troca preventivamente para o Hold para nivelar o terreno antes de posicioná-la.
+  - **Swap de Emergência no Hold**: Se uma peça `S` ou `Z` chega com o tabuleiro sob estresse (altura $\ge 9$, irregularidade $\ge 8$ ou presença de buracos), a política v2 favorece uma troca preventiva quando a alternativa de hold tem nota suficientemente próxima.
 
 ---
 
@@ -230,25 +286,26 @@ O relevo do tabuleiro é monitorado continuamente para prevenir a formação de 
 
 Em vez de depender de uma altura arbitrária fixa (como o antigo limiar estático de 65%), a IA calcula em tempo real o perigo através de `GetDynamicCleanupThreshold`:
 
-$$\text{Limiar} = \text{clamp}\Big(14 - (3 \times \text{Buracos}) - \max(0, \text{AlturaCentral} - 8) - \max(0, \text{Bumpiness} - 7), \; 7, \; 15\Big)$$
+O limiar parte de 14, perde três unidades por buraco e, quando a altura central chega a 9, perde também `alturaCentral - 8`. Se a irregularidade exceder 8, subtrai `bumpiness - 7`. O resultado é limitado ao intervalo de 7 a 15; regras de emergência podem ativar a limpeza antes desse limiar.
 
 - **Ativação Precoce**:
   - Se surgir o **primeiro buraco** na altura $\ge 8$, o modo de limpeza é ativado imediatamente para desenterrá-lo antes que ele seja coberto por novos blocos.
   - Se a irregularidade (*bumpiness*) atingir $\ge 13$ na altura $\ge 8$, o modo de limpeza atua para aplanar espigões antes que uma peça desfavorável cause *top-out*.
   - Se a altura central atingir $\ge 14$ ou a altura geral $\ge 16$, ativação de emergência máxima.
 - **Diferenciação de Peça de Linha Imediata**:
-  - Se a IA estiver com a peça `I` na mão e puder limpar 4 linhas no mesmo instante, o modo de limpeza é adiado por 1 turno para permitir a pontuação do Tetris (que reduz a pilha em 4 linhas instantaneamente).
+  - Em terreno suficientemente seguro, uma peça `I` disponível na mão ou no hold pode adiar a limpeza; isso não verifica nem garante uma limpeza imediata de quatro linhas.
   - Esperas por peças futuras da fila são proibidas se o centro estiver em risco ($\ge 11$ linhas).
 - **Mudança Drástica de Pesos no Modo Limpeza**:
-  - O custo de criar um buraco sobe de $15.000$ para **$55.000\text{ pts}$**, garantindo matematicamente que a IA nunca fure o tabuleiro para limpar uma única linha superficial.
+  - O custo de criar um buraco sobe de $15.000$ para **$55.000\text{ pts}$**, desencorajando limpezas que deixem buracos; isso não garante sua ausência.
   - Linhas parciais (1, 2 e 3 linhas) passam a receber grandes recompensas positivas ($+35.000$ a $+95.000\text{ pts}$) para baixar a altura rapidamente.
 
 ---
 
 ### 6. Mecânica de Lock Delay para Jogadores Humanos
 
-Para partidas manuais humanas (`!AutoPlay`), implementamos a especificação oficial de **Extended Lock Down (Infinity Rule)**:
-- Quando a peça toca o chão ou a superfície dos blocos, ela não trava imediatamente: um temporizador de tolerância de **500 ms** (2 ticks de gravidade) é concedido.
+Em partidas manuais (`!AutoPlay`), o motor oferece tolerância antes do travamento:
+
+- Quando a peça toca o chão ou a superfície dos blocos, ela não trava imediatamente: uma tolerância de **2 ticks de gravidade** é concedida. Sua duração varia com o nível; não é um atraso fixo de 500 ms.
 - Cada movimento horizontal ou rotação bem-sucedida reinicia o temporizador (com limite de segurança de até 15 reinícios).
 - Pressionar **Espaço (Hard Drop)** trava a peça instantaneamente sem atraso.
 - No modo Auto-Play, a IA desativa o lock delay para manter execução de máxima velocidade.
@@ -257,18 +314,20 @@ Para partidas manuais humanas (`!AutoPlay`), implementamos a especificação ofi
 
 ### 📊 Evolução Comparativa de Desempenho
 
-Resultados empíricos consolidados comparando a versão original, a versão intermediária e a versão final otimizada:
+Comparações reproduzíveis com limite de 1.000 peças por partida:
 
-| Métrica Avaliada | Baseline Original (1.000 jogos) | Intermediária (2.000 jogos) | Final Otimizada (519 jogos) | Evolução Geral |
-| :--- | :---: | :---: | :---: | :---: |
-| 💥 **Taxa de Tetris (4 Linhas)** | 41.4% | 53.3% | **60.0%** | **+18.6%** 🚀 |
-| 💀 **Taxa de Derrota por Top-Out (Linhas 19-20)** | 33.8% | 33.2% | **14.8%** | **-56.2% de mortes** 🛡️ |
-| 🏆 **Maior Pontuação Atingida** | 1.443.120 pts | 1.518.656 pts | **1.526.602 pts** | **+83.482 pts** |
-| 🟨 **Mortalidade da Peça O** | 14.6% | 15.5% (#2) | **12.9%** | Suprimida |
-| 🟩 **Mortalidade da Peça S** | 15.2% | 16.7% (#1) | **13.5%** | Suprimida |
-| 🟥 **Mortalidade da Peça Z** | 15.9% (#1) | 14.8% | **13.5%** | Suprimida |
-| ⚡ **Throughput de Simulação** | ~4.000 jogadas/s | ~7.000 jogadas/s | **> 9.200 jogadas/s** | **+130% de velocidade** |
-| 📦 **Alocações no Heap por Jogada** | ~25 alocações | 1 alocação | **0 alocações na busca** | Zero-alloc no loop quente |
+| Experimento | Política anterior | Política nova |
+|---|---:|---:|
+| Sobrevivência — 1.000 seeds (v1 → v2) | 41,1% | 88,6% |
+| Pontuação média — mesmas 1.000 seeds | 879.534 | 1.313.620 |
+| Participação de Tetrises — mesmas 1.000 seeds | 59,9% | 54,5% |
+| Sobrevivência — piloto de 20 seeds (v2 → lookahead 10) | 18/20 | 20/20 |
+| Pontuação média — mesmas 20 seeds | 1.343.355 | 1.496.056 |
+| Participação de Tetrises — mesmas 20 seeds | 55,6% | 70,7% |
+
+A política v2 teve zero desvios nas 951.555 colocações com plano. O piloto de lookahead teve zero desvios nas 20.000 colocações, mas **não substitui uma validação com 1.000 partidas**. Chegar ao limite não significa sobrevivência indefinida; o piloto usa uma prévia maior e foi reutilizado durante o refinamento.
+
+O lookahead de profundidade 10 e feixe 4 levou, em média, cerca de 22 ms por decisão no tabuleiro vazio da máquina testada, contra 1,77 ms na v2. Isso não é um limite de latência nem uma promessa de desempenho em outros computadores. Consulte os [relatórios e comandos completos](benchmarks/README.md).
 
 ---
 
@@ -280,17 +339,23 @@ tetris/
 │   ├── tetris/           # Jogo interativo no terminal (Bubble Tea UI)
 │   ├── train/            # Orquestrador CLI headless de simulação concorrente
 │   ├── analyze/          # Relatório analítico de métricas agregadas
-│   └── analyze_losses/   # Diagnóstico profundo de top-outs e causa raiz de mortes
+│   ├── analyze_losses/   # Diagnóstico profundo de top-outs e causa raiz de mortes
+│   └── learn/            # Treino offline com alternativas simuladas e validação por seed
 ├── internal/
 │   ├── engine/           # Lógica pura do Tetris (100% desacoplada da UI)
 │   │   ├── board.go      # Grid 10x20, colisões, line clearing e wall kicks
 │   │   ├── piece.go      # Definição e rotações dos 7 tetrominós (I, J, L, O, S, T, Z)
 │   │   ├── randomizer.go # Sistema de geração 7-Bag
 │   │   ├── game.go       # Loop do jogo, pontuação, níveis e estados
-│   │   └── ai.go         # Heurísticas de avaliação, lookahead 2-ply e perigo dinâmico
+│   │   ├── ai.go         # Heurísticas, lookahead adaptativo e perigo dinâmico
+│   │   ├── path.go       # Rotas legais com gravidade e replanejamento
+│   │   ├── beam.go       # Lookahead experimental de até 10 colocações
+│   │   ├── learned.go    # Modelo local, probabilidades e fallback
+│   │   └── learned_train.go # Simulações contrafactuais e ajuste offline
 │   ├── logger/           # Gravador assíncrono com canal e buffer bufio de 100 MB
 │   ├── simulator/        # Pool de workers concorrentes para partidas em paralelo
 │   └── ui/               # Renderização de terminal com Lipgloss e Bubble Tea
+├── models/               # Modelo JSON versionado e documentação
 └── logs/                 # Destino dos datasets em JSON Lines (.jsonl)
 ```
 
@@ -301,7 +366,9 @@ tetris/
 O projeto possui cobertura abrangente de testes unitários em todos os pacotes do domínio:
 
 ```bash
-go test -v ./...
+go test ./...
+go test -race ./...
+go vet ./...
 ```
 
 ---

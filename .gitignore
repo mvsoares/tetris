@@ -3,6 +3,7 @@
 /train
 /analyze
 /analyze_losses
+/learn
 
 # Datasets and logs (keep folder via .gitkeep)
 *.jsonl

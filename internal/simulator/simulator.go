@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -15,10 +16,17 @@ import (
 type Config struct {
 	Workers         int    // Number of concurrent worker games (up to 50)
 	TotalGames      int    // Target games to play (0 for infinite until cancelled)
-	MaxMovesPerGame int    // Safety cap per game (default: 2000)
+	MaxMovesPerGame int    // Safety cap per game (default: 10000)
 	LogPath         string // Destination JSONL path
 	Clean           bool   // Clean/truncate log file before starting
-	BufferSize      int    // Buffer size in bytes for writer (default: 1MB)
+	BufferSize      int    // Buffer size in bytes for writer (default: 100MB)
+	Seed            int64  // Base seed; game n uses Seed+n, independent of scheduling.
+	Mode            string // "placement" (default) or "gameplay" (55ms AI and level gravity).
+	ReserveWell     bool   // Keep strict emergency well penalties for comparison.
+	LookaheadDepth  int
+	BeamWidth       int
+	LearnedModel    *engine.MoveModel
+	UseLearned      bool
 }
 
 // Progress holds real-time simulation metrics.
@@ -40,6 +48,8 @@ type Simulator struct {
 	logger *logger.Logger
 
 	completedGames atomic.Int64
+	startedGames   atomic.Int64
+	activeWorkers  atomic.Int64
 	totalMoves     atomic.Int64
 	totalLines     atomic.Int64
 	totalTetrises  atomic.Int64
@@ -47,10 +57,20 @@ type Simulator struct {
 	highScore      atomic.Int64
 
 	startTime time.Time
+	endTime   atomic.Int64
 }
 
 // New creates a new Simulator with up to 50 workers.
 func New(cfg Config) (*Simulator, error) {
+	if cfg.LookaheadDepth < 0 || cfg.LookaheadDepth > 10 || cfg.BeamWidth < 0 || cfg.BeamWidth > 64 {
+		return nil, fmt.Errorf("lookahead must be 0..10 and beam width 0..64")
+	}
+	if cfg.Mode == "" {
+		cfg.Mode = "placement"
+	}
+	if cfg.Mode != "placement" && cfg.Mode != "gameplay" {
+		return nil, fmt.Errorf("unknown simulation mode %q", cfg.Mode)
+	}
 	if cfg.Workers < 1 {
 		cfg.Workers = 1
 	}
@@ -88,11 +108,14 @@ func New(cfg Config) (*Simulator, error) {
 func (s *Simulator) Run(ctx context.Context, onProgress func(Progress)) error {
 	s.startTime = time.Now()
 	var wg sync.WaitGroup
+	var progressWG sync.WaitGroup
 
 	// Progress ticker
 	doneCh := make(chan struct{})
 	if onProgress != nil {
+		progressWG.Add(1)
 		go func() {
+			defer progressWG.Done()
 			ticker := time.NewTicker(500 * time.Millisecond)
 			defer ticker.Stop()
 			for {
@@ -111,14 +134,18 @@ func (s *Simulator) Run(ctx context.Context, onProgress func(Progress)) error {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
+			s.activeWorkers.Add(1)
+			defer s.activeWorkers.Add(-1)
 			s.worker(ctx, id)
 		}(workerID)
 	}
 
 	wg.Wait()
 	close(doneCh)
-
-	return s.logger.Close()
+	progressWG.Wait()
+	err := s.logger.Close()
+	s.endTime.Store(time.Now().UnixNano())
+	return errors.Join(ctx.Err(), err)
 }
 
 func (s *Simulator) worker(ctx context.Context, workerID int) {
@@ -129,58 +156,80 @@ func (s *Simulator) worker(ctx context.Context, workerID int) {
 		default:
 		}
 
-		if s.config.TotalGames > 0 {
-			if s.completedGames.Load() >= int64(s.config.TotalGames) {
-				return
-			}
+		gameIndex := s.startedGames.Add(1) - 1
+		if s.config.TotalGames > 0 && gameIndex >= int64(s.config.TotalGames) {
+			return
 		}
 
 		// Play one complete game
-		g := engine.NewGame()
+		g := engine.NewGameWithSeed(s.config.Seed + gameIndex)
 		g.AutoPlay = true
-		g.SessionID = fmt.Sprintf("sim-w%d-%s", workerID, time.Now().Format("20060102-150405.000000"))
+		g.ReserveWell = s.config.ReserveWell
+		g.ConfigureLookahead(s.config.LookaheadDepth, s.config.BeamWidth)
+		g.LearnedModel, g.UseLearned = s.config.LearnedModel, s.config.UseLearned
+		g.ExecutionMode = "headless_placement"
+		if s.config.Mode == "gameplay" {
+			g.ExecutionMode = "timed_gameplay"
+		}
+		g.SessionID = fmt.Sprintf("sim-%d-game%d", s.startTime.UnixNano(), gameIndex)
 		g.SetLogger(s.logger)
 
 		moves := 0
+		nextAI, nextGravity := engine.AIActionInterval, g.TickInterval()
 		maxLimit := s.config.MaxMovesPerGame
 		if maxLimit <= 0 {
 			maxLimit = 10000
 		}
-		for moves < maxLimit && g.Lines < maxLimit && g.State == engine.StatePlaying {
+		for moves < maxLimit && g.State == engine.StatePlaying {
 			select {
 			case <-ctx.Done():
-				_ = g.Close()
+				_ = g.CloseWithReason(engine.EndCancelled)
 				return
 			default:
 			}
 
-			if !g.StepAIImmediate() {
-				break
+			movesBefore, linesBefore, tetrisesBefore, scoreBefore := g.MoveCount, g.Lines, g.Tetrises, g.Score
+			if s.config.Mode == "gameplay" {
+				// Advance virtual time without sleeping, using the same movement
+				// and gravity methods as the terminal UI.
+				if nextAI <= nextGravity {
+					g.SetAIGravityRemaining(nextGravity - nextAI)
+					g.StepAI()
+					nextAI += engine.AIActionInterval
+				} else {
+					g.Tick()
+					nextGravity += g.TickInterval()
+				}
+			} else {
+				g.StepAIImmediate()
 			}
-			moves++
-			s.totalMoves.Add(1)
+			placed := g.MoveCount - movesBefore
+			moves += placed
+			s.totalMoves.Add(int64(placed))
+			s.totalLines.Add(int64(g.Lines - linesBefore))
+			s.totalTetrises.Add(int64(g.Tetrises - tetrisesBefore))
+			s.totalScore.Add(int64(g.Score - scoreBefore))
+			for {
+				curHigh := s.highScore.Load()
+				if int64(g.Score) <= curHigh || s.highScore.CompareAndSwap(curHigh, int64(g.Score)) {
+					break
+				}
+			}
 		}
 
-		_ = g.Close()
+		_ = g.CloseWithReason(engine.EndMoveLimit)
 
 		s.completedGames.Add(1)
-		s.totalLines.Add(int64(g.Lines))
-		s.totalTetrises.Add(int64(g.Tetrises))
-		s.totalScore.Add(int64(g.Score))
 
-		// Update high score atomically
-		for {
-			curHigh := s.highScore.Load()
-			if int64(g.Score) <= curHigh || s.highScore.CompareAndSwap(curHigh, int64(g.Score)) {
-				break
-			}
-		}
 	}
 }
 
 // GetProgress returns the current progress snapshot.
-func (s *Simulator) GetProgress(activeWorkers int) Progress {
+func (s *Simulator) GetProgress(_ int) Progress {
 	elapsed := time.Since(s.startTime)
+	if end := s.endTime.Load(); end != 0 {
+		elapsed = time.Unix(0, end).Sub(s.startTime)
+	}
 	moves := s.totalMoves.Load()
 
 	movesPerSec := 0.0
@@ -189,7 +238,7 @@ func (s *Simulator) GetProgress(activeWorkers int) Progress {
 	}
 
 	return Progress{
-		ActiveWorkers:  activeWorkers,
+		ActiveWorkers:  int(s.activeWorkers.Load()),
 		CompletedGames: s.completedGames.Load(),
 		TotalMoves:     moves,
 		TotalLines:     s.totalLines.Load(),

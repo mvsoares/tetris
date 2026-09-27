@@ -1,0 +1,50 @@
+{
+  "policy_before": "heuristic-9-0-v1",
+  "policy_after": "heuristic-9-0-v2",
+  "mode": "timed_gameplay",
+  "seed_first": 1,
+  "seed_last": 1000,
+  "games_per_policy": 1000,
+  "max_placements_per_game": 1000,
+  "before": {
+    "survivors": 411,
+    "losses": 589,
+    "mean_placements": 732.176,
+    "mean_lines": 283.452,
+    "mean_score": 879533.802,
+    "tetris_line_percent": 59.92125650903857,
+    "planned_placements": 732082,
+    "plan_misses": 2204,
+    "watchdog_drops": 899
+  },
+  "after": {
+    "survivors": 886,
+    "losses": 114,
+    "mean_placements": 951.641,
+    "mean_lines": 375.715,
+    "mean_score": 1313620.364,
+    "tetris_line_percent": 54.53601799236123,
+    "planned_placements": 951555,
+    "plan_misses": 0,
+    "watchdog_drops": 0
+  },
+  "paired_survival": {
+    "both_survive": 368,
+    "both_lose": 71,
+    "improved": 518,
+    "regressed": 43
+  },
+  "holdout_seeds_101_1000": {
+    "games": 900,
+    "before_survivors": 369,
+    "after_survivors": 800
+  },
+  "survival_gain_percentage_points": 47.5,
+  "mean_score_gain_percent": 49.354164787404045,
+  "mean_lines_gain_percent": 32.54977915132014,
+  "losses_reduction_percent": 80.64516129032258,
+  "final_source_replay": {
+    "seeds": 10,
+    "matches_batch": true
+  }
+}

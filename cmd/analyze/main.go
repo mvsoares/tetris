@@ -43,9 +43,12 @@ func main() {
 			for step := 0; step < 300 && g.State == engine.StatePlaying; step++ {
 				g.StepAIImmediate()
 			}
-			_ = g.Close()
+			_ = g.CloseWithReason(engine.EndMoveLimit)
 		}
-		_ = playLogger.Close()
+		if err := playLogger.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Erro ao gravar logs: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Printf("✅ Simulação concluída com sucesso! Partidas registradas em %s\n\n", *logFile)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,28 +16,76 @@ import (
 // MoveLog represents a single move played in a game session.
 // Designed for offline reinforcement learning, imitation learning, and performance analysis.
 type MoveLog struct {
-	SessionID       string    `json:"session_id"`
-	Timestamp       time.Time `json:"timestamp"`
-	MoveNumber      int       `json:"move_number"`
-	PlayerType      string    `json:"player_type"` // "AI" or "HUMAN"
-	PieceType       string    `json:"piece_type"`
-	UsedHold        bool      `json:"used_hold"`
-	Rotation        int       `json:"rotation"`
-	X               int       `json:"x"`
-	Y               int       `json:"y"`
-	LinesCleared    int       `json:"lines_cleared"`
-	ScoreGained     int       `json:"score_gained"`
-	TotalScore      int       `json:"total_score"`
-	TotalLines      int       `json:"total_lines"`
-	Level           int       `json:"level"`
-	MaxHeightBefore int       `json:"max_height_before"`
-	MaxHeightAfter  int       `json:"max_height_after"`
-	HolesAfter      int       `json:"holes_after"`
-	BumpinessAfter  int       `json:"bumpiness_after"`
-	IsCleanupMode   bool      `json:"is_cleanup_mode"`
-	HeuristicScore  float64   `json:"heuristic_score,omitempty"`
+	SessionID       string       `json:"session_id"`
+	Timestamp       time.Time    `json:"timestamp"`
+	MoveNumber      int          `json:"move_number"`
+	PlayerType      string       `json:"player_type"` // "AI" or "HUMAN"
+	PieceType       string       `json:"piece_type"`
+	UsedHold        bool         `json:"used_hold"`
+	Rotation        int          `json:"rotation"`
+	X               int          `json:"x"`
+	Y               int          `json:"y"`
+	LinesCleared    int          `json:"lines_cleared"`
+	ScoreGained     int          `json:"score_gained"`
+	TotalScore      int          `json:"total_score"`
+	TotalLines      int          `json:"total_lines"`
+	Level           int          `json:"level"`
+	MaxHeightBefore int          `json:"max_height_before"`
+	HolesBefore     int          `json:"holes_before"`
+	BumpinessBefore int          `json:"bumpiness_before"`
+	MaxHeightAfter  int          `json:"max_height_after"`
+	HolesAfter      int          `json:"holes_after"`
+	BumpinessAfter  int          `json:"bumpiness_after"`
+	IsCleanupMode   bool         `json:"is_cleanup_mode"`
+	HeuristicScore  float64      `json:"heuristic_score,omitempty"`
+	HadAIPlan       bool         `json:"had_ai_plan"`
+	AIPlanMatched   bool         `json:"ai_plan_matched"`
+	SearchDepth     int          `json:"search_depth,omitempty"`
+	SearchNodes     int          `json:"search_nodes,omitempty"`
+	Decision        *DecisionLog `json:"decision,omitempty"`
+	MoveProbability *float64     `json:"move_probability,omitempty"`
+	LearnedUsed     bool         `json:"learned_used,omitempty"`
+	LearnedFallback string       `json:"learned_fallback,omitempty"`
 	// BoardStateAfter stores the 20x10 grid as 20 strings of "0" and "1"
-	BoardStateAfter []string  `json:"board_state_after"`
+	BoardStateAfter  []string `json:"board_state_after"`
+	BoardStateBefore []string `json:"board_state_before"`
+}
+
+// DecisionLog describes the state of the final planning call, which may occur
+// after a hold/replan. It is not necessarily the start of the entire turn.
+type DecisionLog struct {
+	Version            int            `json:"version"`
+	Seed               int64          `json:"seed"`
+	MoveNumber         int            `json:"move_number"`
+	Policy             string         `json:"policy"`
+	Board              []string       `json:"board"`
+	Piece              string         `json:"piece"`
+	X                  int            `json:"x"`
+	Y                  int            `json:"y"`
+	Rotation           int            `json:"rotation"`
+	Hold               string         `json:"hold"`
+	CanHold            bool           `json:"can_hold"`
+	Queue              []string       `json:"queue"`
+	RemainingBag       []string       `json:"remaining_bag"`
+	Level              int            `json:"level"`
+	Lines              int            `json:"lines"`
+	GravityRemainingNS int64          `json:"gravity_remaining_ns"`
+	ReserveWell        bool           `json:"reserve_well"`
+	Candidates         []CandidateLog `json:"candidates"`
+	ModelID            string         `json:"model_id,omitempty"`
+	RiskHorizon        int            `json:"risk_horizon,omitempty"`
+	RiskTarget         string         `json:"risk_target,omitempty"`
+}
+
+type CandidateLog struct {
+	Piece               string   `json:"piece"`
+	UseHold             bool     `json:"use_hold"`
+	X                   int      `json:"x"`
+	Y                   int      `json:"y"`
+	Rotation            int      `json:"rotation"`
+	Heuristic           float64  `json:"heuristic"`
+	Selected            bool     `json:"selected"`
+	SurvivalProbability *float64 `json:"survival_probability,omitempty"`
 }
 
 // SessionEndLog represents aggregate stats at the end of a game session.
@@ -53,12 +102,25 @@ type SessionEndLog struct {
 	Triples           int       `json:"triples"`
 	Tetrises          int       `json:"tetrises"`
 	TetrisRatePercent float64   `json:"tetris_rate_percent"`
+	EndReason         string    `json:"end_reason"`
+	FailedPiece       string    `json:"failed_piece,omitempty"`
+	Seed              int64     `json:"seed"`
+	PolicyVersion     string    `json:"policy_version"`
+	ExecutionMode     string    `json:"execution_mode"`
+	MaxHeight         int       `json:"max_height"`
+	Holes             int       `json:"holes"`
+	Bumpiness         int       `json:"bumpiness"`
+	IsCleanupMode     bool      `json:"is_cleanup_mode"`
+	BoardState        []string  `json:"board_state"`
+	PlanMisses        int       `json:"plan_misses"`
+	WatchdogDrops     int       `json:"watchdog_drops"`
+	AIReplans         int       `json:"ai_replans"`
 }
 
 // Options provides configuration for log creation, buffering and truncation.
 type Options struct {
 	Truncate   bool // If true, truncates/cleans the log file upon opening
-	BufferSize int  // Buffer size in bytes for the writer (default: 1MB)
+	BufferSize int  // Buffer size in bytes for the writer (default: 100MB)
 	DropOnFull bool // If true, drops logs when channel is full (for UI mode)
 }
 
@@ -91,6 +153,9 @@ type Logger struct {
 	mu         sync.Mutex
 	dropOnFull bool
 	bufferSize int
+	writeErr   error // Written only by worker; read after wg.Wait.
+	closeErr   error
+	closeOnce  sync.Once
 }
 
 // CleanLog cleans (truncates to 0 bytes) the log file at the given path.
@@ -169,15 +234,22 @@ func (l *Logger) worker() {
 	encoder.SetEscapeHTML(false)
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
+	recordError := func(err error) {
+		if err != nil && l.writeErr == nil {
+			l.writeErr = err
+		}
+	}
 
 	for {
 		select {
 		case item, ok := <-l.ch:
 			if !ok {
-				_ = writer.Flush()
+				recordError(writer.Flush())
 				return
 			}
-			_ = encoder.Encode(item)
+			if l.writeErr == nil {
+				recordError(encoder.Encode(item))
+			}
 
 			// Batch drain up to 512 pending items to maximize buffer utilization
 			batchCount := 0
@@ -185,10 +257,12 @@ func (l *Logger) worker() {
 				select {
 				case nextItem, nextOk := <-l.ch:
 					if !nextOk {
-						_ = writer.Flush()
+						recordError(writer.Flush())
 						return
 					}
-					_ = encoder.Encode(nextItem)
+					if l.writeErr == nil {
+						recordError(encoder.Encode(nextItem))
+					}
 					batchCount++
 				default:
 					break
@@ -199,7 +273,7 @@ func (l *Logger) worker() {
 			}
 
 		case <-ticker.C:
-			_ = writer.Flush()
+			recordError(writer.Flush())
 		}
 	}
 }
@@ -245,17 +319,15 @@ func (l *Logger) LogSessionEnd(s SessionEndLog) {
 
 // Close flushes all queued logs and closes the underlying file.
 func (l *Logger) Close() error {
-	l.mu.Lock()
-	if l.closed {
+	l.closeOnce.Do(func() {
+		l.mu.Lock()
+		l.closed = true
+		close(l.ch)
 		l.mu.Unlock()
-		return nil
-	}
-	l.closed = true
-	close(l.ch)
-	l.mu.Unlock()
-
-	l.wg.Wait()
-	return l.file.Close()
+		l.wg.Wait()
+		l.closeErr = errors.Join(l.writeErr, l.file.Close())
+	})
+	return l.closeErr
 }
 
 // ReadLogStats reads and aggregates metrics from a JSONL log file.
@@ -278,13 +350,16 @@ func ReadLogStatsFromReader(r io.Reader) (LogStats, error) {
 	var stats LogStats
 	sessionsMap := make(map[string]bool)
 
+	lineNumber := 0
 	for scanner.Scan() {
+		lineNumber++
 		rawBytes := bytes.TrimSpace(scanner.Bytes())
 		if len(rawBytes) == 0 {
 			continue
 		}
 
 		var move struct {
+			Type           string `json:"type"`
 			SessionID      string `json:"session_id"`
 			MoveNumber     int    `json:"move_number"`
 			PlayerType     string `json:"player_type"`
@@ -294,7 +369,13 @@ func ReadLogStatsFromReader(r io.Reader) (LogStats, error) {
 			TotalScore     int    `json:"total_score"`
 			IsCleanupMode  bool   `json:"is_cleanup_mode"`
 		}
-		if err := json.Unmarshal(rawBytes, &move); err == nil && move.SessionID != "" && move.MoveNumber > 0 {
+		if err := json.Unmarshal(rawBytes, &move); err != nil {
+			return stats, fmt.Errorf("invalid JSON at line %d: %w", lineNumber, err)
+		}
+		if move.Type == "SESSION_END" && move.SessionID != "" {
+			sessionsMap[move.SessionID] = true
+		}
+		if move.Type == "" && move.SessionID != "" && move.MoveNumber > 0 {
 			stats.TotalMoves++
 			sessionsMap[move.SessionID] = true
 			if move.PlayerType == "AI" {

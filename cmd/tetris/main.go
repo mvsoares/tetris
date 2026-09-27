@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"tetris/internal/engine"
 	"tetris/internal/simulator"
 	"tetris/internal/ui"
 
@@ -20,7 +21,21 @@ func main() {
 	workers := flag.Int("workers", 0, "Número de partidas simultâneas em background (1 a 50)")
 	games := flag.Int("games", 100, "Total de partidas no modo de treino em background")
 	logFile := flag.String("file", "logs/plays.jsonl", "Caminho do arquivo de logs (.jsonl)")
+	lookahead := flag.Int("lookahead", 0, "Experimental lookahead: 0 (v2) or 1..10 placements")
+	beamWidth := flag.Int("beam-width", 4, "Experimental beam width (1..64)")
+	learned := flag.Bool("learned", false, "Ativar IA híbrida experimental")
+	modelFile := flag.String("model", "models/move-risk.json", "Modelo carregado uma vez na inicialização")
 	flag.Parse()
+	var model *engine.MoveModel
+	if loaded, err := engine.LoadMoveModel(*modelFile); err == nil {
+		model = loaded
+	} else if *learned || !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Modelo indisponível; usando fallback: %v\n", err)
+	}
+	if *lookahead < 0 || *lookahead > 10 || *beamWidth < 1 || *beamWidth > 64 {
+		fmt.Fprintln(os.Stderr, "lookahead must be 0..10 and beam-width 1..64")
+		os.Exit(1)
+	}
 
 	if *trainMode || *workers > 0 {
 		w := *workers
@@ -30,12 +45,13 @@ func main() {
 		if w > 50 {
 			w = 50
 		}
-		runBackgroundTrain(w, *games, *logFile)
+		runBackgroundTrain(w, *games, *logFile, *lookahead, *beamWidth, model, *learned)
 		return
 	}
 
+	m := ui.NewModelWithLearned(*lookahead, *beamWidth, model, *learned)
 	p := tea.NewProgram(
-		ui.NewModel(),
+		m,
 		tea.WithAltScreen(),       // Use alternate screen buffer
 		tea.WithMouseCellMotion(), // Track mouse if needed
 	)
@@ -46,12 +62,16 @@ func main() {
 	}
 }
 
-func runBackgroundTrain(workers int, totalGames int, logPath string) {
+func runBackgroundTrain(workers int, totalGames int, logPath string, lookahead, beamWidth int, model *engine.MoveModel, learned bool) {
 	cfg := simulator.Config{
 		Workers:         workers,
 		TotalGames:      totalGames,
 		MaxMovesPerGame: 10000,
 		LogPath:         logPath,
+		LookaheadDepth:  lookahead,
+		BeamWidth:       beamWidth,
+		LearnedModel:    model,
+		UseLearned:      learned,
 	}
 
 	sim, err := simulator.New(cfg)
@@ -110,7 +130,10 @@ func runBackgroundTrain(workers int, totalGames int, logPath string) {
 	}
 
 	startTime := time.Now()
-	_ = sim.Run(ctx, progressCallback)
+	if err := sim.Run(ctx, progressCallback); err != nil {
+		fmt.Fprintf(os.Stderr, "Simulação interrompida ou falhou: %v\n", err)
+		os.Exit(1)
+	}
 	elapsed := time.Since(startTime)
 
 	finalProg := sim.GetProgress(workers)
@@ -133,4 +156,3 @@ func runBackgroundTrain(workers int, totalGames int, logPath string) {
 	fmt.Printf("💡 Para analisar o dataset gerado: ./analyze -file %s\n", logPath)
 	fmt.Println("================================================================")
 }
-

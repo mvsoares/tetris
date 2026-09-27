@@ -15,35 +15,61 @@ const (
 	StateGameOver
 )
 
+const PolicyVersion = "heuristic-9-0-v2"
+
+const (
+	EndTopOut      = "top_out"
+	EndNoLegalMove = "no_legal_move"
+	EndMoveLimit   = "move_limit"
+	EndCancelled   = "cancelled"
+	EndClosed      = "closed"
+	EndRestarted   = "restarted"
+)
+
 type Game struct {
-	Board            *Board
-	CurrentPiece     *Piece
-	HoldPiece        *Piece
-	CanHold          bool
-	NextQueue        []TetrominoType
-	Randomizer       *Randomizer
-	Score            int
-	HighScore        int
-	Level            int
-	Lines            int
-	State            GameState
-	LastAction       string
-	LastScoreGained  int
-	AutoPlay         bool
-	CurrentAIMove    *AIMove
-	stuckTicks       int
-	Logger           *logger.Logger
-	SessionID        string
-	MoveCount        int
-	UsedHoldThisTurn bool
-	Singles          int
-	Doubles          int
-	Triples          int
-	Tetrises         int
-	sessionEnded     bool
-	lockDelayTicks   int
-	lockDelayActive  bool
-	lockResets       int
+	Board               *Board
+	CurrentPiece        *Piece
+	HoldPiece           *Piece
+	CanHold             bool
+	NextQueue           []TetrominoType
+	Randomizer          *Randomizer
+	Score               int
+	HighScore           int
+	Level               int
+	Lines               int
+	State               GameState
+	LastAction          string
+	LastScoreGained     int
+	AutoPlay            bool
+	CurrentAIMove       *AIMove
+	Logger              *logger.Logger
+	SessionID           string
+	MoveCount           int
+	UsedHoldThisTurn    bool
+	Singles             int
+	Doubles             int
+	Triples             int
+	Tetrises            int
+	Seed                int64
+	EndReason           string
+	FailedPiece         TetrominoType
+	ExecutionMode       string
+	PlanMisses          int
+	WatchdogDrops       int
+	AIReplans           int
+	ReserveWell         bool
+	LookaheadDepth      int
+	BeamWidth           int
+	LearnedModel        *MoveModel
+	UseLearned          bool
+	learnedMoveThisTurn bool
+	aiGravityRemaining  time.Duration
+	aiGravityKnown      bool
+	scoreAtLastLock     int
+	sessionEnded        bool
+	lockDelayTicks      int
+	lockDelayActive     bool
+	lockResets          int
 }
 
 const (
@@ -51,13 +77,19 @@ const (
 )
 
 func NewGame() *Game {
+	return NewGameWithSeed(time.Now().UnixNano())
+}
+
+func NewGameWithSeed(seed int64) *Game {
 	g := &Game{
-		Board:      NewBoard(),
-		Randomizer: NewRandomizer(),
-		Level:      1,
-		CanHold:    true,
-		State:      StatePlaying,
-		SessionID:  fmt.Sprintf("session-%s", time.Now().Format("20060102-150405.000")),
+		Board:         NewBoard(),
+		Randomizer:    NewRandomizerWithSeed(seed),
+		Seed:          seed,
+		ExecutionMode: "interactive",
+		Level:         1,
+		CanHold:       true,
+		State:         StatePlaying,
+		SessionID:     fmt.Sprintf("session-%d", time.Now().UnixNano()),
 	}
 
 	// Initialize the next queue
@@ -76,16 +108,13 @@ func (g *Game) spawnPiece() {
 	g.CurrentPiece = NewPiece(nextType)
 	g.CanHold = true
 	g.CurrentAIMove = nil
-	g.stuckTicks = 0
 	g.lockDelayActive = false
 	g.lockDelayTicks = 0
 	g.lockResets = 0
 
 	// If spawned piece collides immediately, game over
 	if !g.Board.IsValidPosition(g.CurrentPiece) {
-		g.State = StateGameOver
-		g.LastAction = "GAME OVER"
-		g.logSessionEnd()
+		g.gameOver(EndTopOut)
 	}
 }
 
@@ -148,8 +177,12 @@ func (g *Game) HardDrop() int {
 	if g.State != StatePlaying || g.CurrentPiece == nil {
 		return 0
 	}
+	return g.hardDrop(g.CurrentPiece.Y)
+}
+
+func (g *Game) hardDrop(startY int) int {
 	ghostY := g.Board.GetGhostY(g.CurrentPiece)
-	dropDistance := ghostY - g.CurrentPiece.Y
+	dropDistance := ghostY - startY
 	if dropDistance < 0 {
 		dropDistance = 0
 	}
@@ -200,13 +233,15 @@ func (g *Game) Hold() bool {
 	if g.HoldPiece == nil {
 		g.HoldPiece = NewPiece(currentType)
 		g.spawnPiece()
+		if g.State != StatePlaying {
+			return false
+		}
 	} else {
 		heldType := g.HoldPiece.Type
 		g.HoldPiece = NewPiece(currentType)
 		g.CurrentPiece = NewPiece(heldType)
 		if !g.Board.IsValidPosition(g.CurrentPiece) {
-			g.State = StateGameOver
-			g.LastAction = "GAME OVER"
+			g.gameOver(EndTopOut)
 			return false
 		}
 	}
@@ -267,7 +302,28 @@ func (g *Game) lockCurrentPiece() {
 	if g.AutoPlay {
 		playerType = "AI"
 	}
-	scoreBefore := g.Score
+	scoreBefore := g.scoreAtLastLock
+	cleanupMode := IsCleanupMode(g)
+	if g.CurrentAIMove != nil {
+		cleanupMode = g.CurrentAIMove.CleanupMode
+	}
+	var gridBefore []string
+	hadAIPlan, planMatched := g.CurrentAIMove != nil, false
+	if hadAIPlan {
+		planMatched = rot == g.CurrentAIMove.TargetRotation && pX == g.CurrentAIMove.TargetX
+		if g.CurrentAIMove.HasTargetY {
+			planMatched = planMatched && pY == g.CurrentAIMove.TargetY
+		}
+		if !planMatched {
+			g.PlanMisses++
+		}
+	}
+	holesBefore, bumpBefore := 0, 0
+	if g.Logger != nil {
+		gridBefore = g.Board.ToStringGrid()
+		holesBefore = g.Board.CountHoles()
+		bumpBefore = g.Board.Bumpiness()
+	}
 
 	g.Board.LockPiece(g.CurrentPiece)
 	cleared := g.Board.ClearLines()
@@ -317,36 +373,57 @@ func (g *Game) lockCurrentPiece() {
 		gridAfter := g.Board.ToStringGrid()
 
 		var hScore float64
+		var searchDepth, searchNodes int
+		var decision *logger.DecisionLog
+		var probability *float64
+		var learnedUsed bool
+		var learnedFallback string
 		if g.CurrentAIMove != nil {
 			hScore = g.CurrentAIMove.Score
+			searchDepth, searchNodes = g.CurrentAIMove.SearchDepth, g.CurrentAIMove.SearchNodes
+			decision, probability = g.CurrentAIMove.Decision, g.CurrentAIMove.MoveProbability
+			learnedUsed, learnedFallback = g.CurrentAIMove.LearnedUsed || g.learnedMoveThisTurn, g.CurrentAIMove.LearnedFallback
 		}
 
 		g.Logger.LogMove(logger.MoveLog{
-			SessionID:       g.SessionID,
-			Timestamp:       time.Now(),
-			MoveNumber:      g.MoveCount,
-			PlayerType:      playerType,
-			PieceType:       pType,
-			UsedHold:        usedHold,
-			Rotation:        rot,
-			X:               pX,
-			Y:               pY,
-			LinesCleared:    cleared,
-			ScoreGained:     g.Score - scoreBefore,
-			TotalScore:      g.Score,
-			TotalLines:      g.Lines,
-			Level:           g.Level,
-			MaxHeightBefore: maxHBefore,
-			MaxHeightAfter:  maxHAfter,
-			HolesAfter:      holesAfter,
-			BumpinessAfter:  bumpAfter,
-			IsCleanupMode:   IsCleanupMode(g),
-			HeuristicScore:  hScore,
-			BoardStateAfter: gridAfter,
+			SessionID:        g.SessionID,
+			Timestamp:        time.Now(),
+			MoveNumber:       g.MoveCount,
+			PlayerType:       playerType,
+			PieceType:        pType,
+			UsedHold:         usedHold,
+			Rotation:         rot,
+			X:                pX,
+			Y:                pY,
+			LinesCleared:     cleared,
+			ScoreGained:      g.Score - scoreBefore,
+			TotalScore:       g.Score,
+			TotalLines:       g.Lines,
+			Level:            g.Level,
+			MaxHeightBefore:  maxHBefore,
+			HolesBefore:      holesBefore,
+			BumpinessBefore:  bumpBefore,
+			MaxHeightAfter:   maxHAfter,
+			HolesAfter:       holesAfter,
+			BumpinessAfter:   bumpAfter,
+			IsCleanupMode:    cleanupMode,
+			HeuristicScore:   hScore,
+			HadAIPlan:        hadAIPlan,
+			AIPlanMatched:    planMatched,
+			SearchDepth:      searchDepth,
+			SearchNodes:      searchNodes,
+			Decision:         decision,
+			MoveProbability:  probability,
+			LearnedUsed:      learnedUsed,
+			LearnedFallback:  learnedFallback,
+			BoardStateAfter:  gridAfter,
+			BoardStateBefore: gridBefore,
 		})
 	}
 
 	g.UsedHoldThisTurn = false
+	g.learnedMoveThisTurn = false
+	g.scoreAtLastLock = g.Score
 	g.spawnPiece()
 }
 
@@ -364,17 +441,34 @@ func (g *Game) SetLogger(l *logger.Logger) {
 
 // Close finalizes logging for the current game session without closing shared logger.
 func (g *Game) Close() error {
+	return g.CloseWithReason(EndClosed)
+}
+
+func (g *Game) CloseWithReason(reason string) error {
+	if g.EndReason == "" {
+		g.EndReason = reason
+	}
 	g.logSessionEnd()
 	return nil
 }
 
 // CloseLogger finalizes the session and closes the underlying logger file.
 func (g *Game) CloseLogger() error {
-	g.logSessionEnd()
+	_ = g.Close()
 	if g.Logger != nil {
 		return g.Logger.Close()
 	}
 	return nil
+}
+
+func (g *Game) gameOver(reason string) {
+	g.State = StateGameOver
+	g.LastAction = "GAME OVER"
+	g.EndReason = reason
+	if g.CurrentPiece != nil {
+		g.FailedPiece = g.CurrentPiece.Type
+	}
+	g.logSessionEnd()
 }
 
 func (g *Game) logSessionEnd() {
@@ -396,6 +490,19 @@ func (g *Game) logSessionEnd() {
 			Triples:           g.Triples,
 			Tetrises:          g.Tetrises,
 			TetrisRatePercent: tetrisRate,
+			EndReason:         g.EndReason,
+			FailedPiece:       string(g.FailedPiece),
+			Seed:              g.Seed,
+			PolicyVersion:     g.policyVersion(),
+			ExecutionMode:     g.ExecutionMode,
+			MaxHeight:         g.Board.MaxHeight(),
+			Holes:             g.Board.CountHoles(),
+			Bumpiness:         g.Board.Bumpiness(),
+			IsCleanupMode:     IsCleanupMode(g),
+			BoardState:        g.Board.ToStringGrid(),
+			PlanMisses:        g.PlanMisses,
+			WatchdogDrops:     g.WatchdogDrops,
+			AIReplans:         g.AIReplans,
 		})
 	}
 }
@@ -411,15 +518,21 @@ func (g *Game) TogglePause() {
 
 // Restart resets the game to initial state, keeping the HighScore, Logger, and AutoPlay.
 func (g *Game) Restart() {
-	g.logSessionEnd()
+	_ = g.CloseWithReason(EndRestarted)
 	high := g.HighScore
 	savedLogger := g.Logger
 	savedAutoPlay := g.AutoPlay
+	savedReserveWell := g.ReserveWell
+	savedDepth, savedWidth := g.LookaheadDepth, g.BeamWidth
+	savedModel, savedLearned := g.LearnedModel, g.UseLearned
 
 	*g = *NewGame()
 	g.HighScore = high
 	g.Logger = savedLogger
 	g.AutoPlay = savedAutoPlay
+	g.ReserveWell = savedReserveWell
+	g.ConfigureLookahead(savedDepth, savedWidth)
+	g.LearnedModel, g.UseLearned = savedModel, savedLearned
 }
 
 // TickInterval calculates the gravity speed based on current level.
@@ -471,7 +584,6 @@ func (g *Game) SetupFourLines() {
 func (g *Game) ToggleAutoPlay() bool {
 	g.AutoPlay = !g.AutoPlay
 	g.CurrentAIMove = nil
-	g.stuckTicks = 0
 	if g.AutoPlay {
 		g.LastAction = "🤖 AUTO-PLAY ON"
 	} else {
@@ -486,74 +598,96 @@ func (g *Game) StepAI() bool {
 	if g.State != StatePlaying || g.CurrentPiece == nil || !g.AutoPlay {
 		return false
 	}
-
-	// Compute plan if absent
-	if g.CurrentAIMove == nil {
-		g.CurrentAIMove = FindBestMove(g)
-		g.stuckTicks = 0
-		if g.CurrentAIMove == nil {
-			return false
-		}
-
-		// If optimal plan requires hold, execute hold and re-plan
-		if g.CurrentAIMove.UseHold && g.CanHold {
-			g.Hold()
-			g.CurrentAIMove = FindBestMove(g)
-			if g.CurrentAIMove == nil {
-				return false
+	for attempt := 0; attempt < 2; attempt++ {
+		if g.CurrentAIMove != nil {
+			p := g.CurrentAIMove
+			if len(p.Expected) == 0 || len(p.Actions) == 0 || p.Expected[0].X != g.CurrentPiece.X || p.Expected[0].Y != g.CurrentPiece.Y || p.Expected[0].Rotation != g.CurrentPiece.Rotation || p.Expected[0].Type != g.CurrentPiece.Type {
+				g.CurrentAIMove = nil
+				g.AIReplans++
 			}
 		}
-	}
-
-	plan := g.CurrentAIMove
-	if plan.CleanupMode && (g.LastAction == "" || g.LastAction == "🤖 AUTO-PLAY ON" || g.LastAction == "🎮 MANUAL ON") {
-		g.LastAction = "🚨 LIMPEZA (65%+)"
-	}
-
-	// 1. Rotate towards target rotation
-	if g.CurrentPiece.Rotation != plan.TargetRotation {
-		if !g.RotateCW() {
-			g.stuckTicks++
-		} else {
-			g.stuckTicks = 0
+		if g.CurrentAIMove == nil {
+			g.CurrentAIMove = FindBestMove(g)
+			if g.CurrentAIMove == nil {
+				g.gameOver(EndNoLegalMove)
+				return false
+			}
+			if g.CurrentAIMove.UseHold && g.CanHold {
+				learnedHold := g.CurrentAIMove.LearnedUsed
+				if !g.Hold() {
+					return false
+				}
+				g.learnedMoveThisTurn = g.learnedMoveThisTurn || learnedHold
+				g.CurrentAIMove = FindBestMove(g)
+				if g.CurrentAIMove == nil {
+					g.gameOver(EndNoLegalMove)
+					return false
+				}
+			}
+		}
+		plan := g.CurrentAIMove
+		if plan.CleanupMode {
+			g.LastAction = "🚨 LIMPEZA"
+		}
+		action := plan.Actions[0]
+		moved := true
+		switch action {
+		case AILeft:
+			moved = g.MoveLeft()
+		case AIRight:
+			moved = g.MoveRight()
+		case AIRotateCW:
+			moved = g.RotateCW()
+		case AIRotateCCW:
+			moved = g.RotateCCW()
+		case AIDown:
+			moved = g.SoftDrop()
+		case AIHardDrop:
+			if plan.HasTargetY && g.Board.GetGhostY(g.CurrentPiece) != plan.TargetY {
+				g.CurrentAIMove = nil
+				g.AIReplans++
+				continue
+			}
+			g.learnedMoveThisTurn = g.learnedMoveThisTurn || plan.LearnedUsed
+			g.HardDrop()
 			return true
 		}
-	}
-
-	// 2. Move towards target X
-	if g.CurrentPiece.X < plan.TargetX {
-		if !g.MoveRight() {
-			g.stuckTicks++
-		} else {
-			g.stuckTicks = 0
-			return true
+		if !moved {
+			g.CurrentAIMove = nil
+			g.AIReplans++
+			continue
 		}
-	} else if g.CurrentPiece.X > plan.TargetX {
-		if !g.MoveLeft() {
-			g.stuckTicks++
-		} else {
-			g.stuckTicks = 0
-			return true
+		g.learnedMoveThisTurn = g.learnedMoveThisTurn || plan.LearnedUsed
+		plan.Actions, plan.Expected = plan.Actions[1:], plan.Expected[1:]
+		// Commit as soon as the selected landing is reachable by hard drop.
+		if g.CurrentPiece.X == plan.TargetX && g.CurrentPiece.Rotation == plan.TargetRotation && g.Board.GetGhostY(g.CurrentPiece) == plan.TargetY {
+			g.HardDrop()
 		}
-	}
-
-	// 3. Target reached: hard drop!
-	if g.CurrentPiece.Rotation == plan.TargetRotation && g.CurrentPiece.X == plan.TargetX {
-		g.HardDrop()
-		g.CurrentAIMove = nil
-		g.stuckTicks = 0
 		return true
 	}
-
-	// Watchdog: if piece gets blocked by obstacles, hard drop to unblock
-	if g.stuckTicks >= 2 {
-		g.HardDrop()
-		g.CurrentAIMove = nil
-		g.stuckTicks = 0
-		return true
-	}
-
 	return false
+}
+
+func (g *Game) policyVersion() string {
+	if g.UseLearned {
+		copyGame := *g
+		copyGame.UseLearned = false
+		if g.LearnedModel == nil {
+			return "hybrid-risk-v1-fallback-no-model/" + copyGame.policyVersion()
+		}
+		return "hybrid-risk-v1-" + g.LearnedModel.ID + "/" + copyGame.policyVersion()
+	}
+	if g.LookaheadDepth > 0 {
+		version := fmt.Sprintf("beam-v2-depth%d-width%d", g.LookaheadDepth, g.BeamWidth)
+		if g.ReserveWell {
+			version += "-strict-well"
+		}
+		return version
+	}
+	if g.ReserveWell {
+		return PolicyVersion + "-strict-well"
+	}
+	return PolicyVersion
 }
 
 // StepAIImmediate calculates the optimal move and drops the piece immediately.
@@ -563,46 +697,38 @@ func (g *Game) StepAIImmediate() bool {
 	if g.State != StatePlaying || g.CurrentPiece == nil {
 		return false
 	}
+	g.ExecutionMode = "headless_placement"
 
 	plan := FindBestMove(g)
 	if plan == nil {
-		g.State = StateGameOver
-		g.logSessionEnd()
+		g.gameOver(EndNoLegalMove)
 		return false
 	}
 
 	if plan.UseHold && g.CanHold {
+		learnedHold := plan.LearnedUsed
 		if !g.Hold() {
 			return false
 		}
+		g.learnedMoveThisTurn = g.learnedMoveThisTurn || learnedHold
 		plan = FindBestMove(g)
 		if plan == nil {
-			g.State = StateGameOver
-			g.logSessionEnd()
+			g.gameOver(EndNoLegalMove)
 			return false
 		}
 	}
 
 	g.CurrentPiece.Rotation = plan.TargetRotation
 	g.CurrentPiece.X = plan.TargetX
-	g.CurrentPiece.Y = -2
-	for g.CurrentPiece.Y < 0 && !g.Board.IsValidPosition(g.CurrentPiece) {
-		g.CurrentPiece.Y++
-	}
-
+	g.CurrentPiece.Y = plan.TargetY
 	if !g.Board.IsValidPosition(g.CurrentPiece) {
-		g.CurrentPiece.Y = 0
-		if !g.Board.IsValidPosition(g.CurrentPiece) {
-			g.State = StateGameOver
-			g.logSessionEnd()
-			return false
-		}
+		g.gameOver(EndNoLegalMove)
+		return false
 	}
 
 	g.CurrentAIMove = plan
-	g.HardDrop()
+	// Direct placement awards drop distance from spawn, not hidden search rows.
+	g.hardDrop(NewPiece(g.CurrentPiece.Type).Y)
 	g.CurrentAIMove = nil
 	return true
 }
-
-

@@ -131,6 +131,13 @@ func (m *Model) renderLeftPanel() string {
 	if m.game.LastAction != "" {
 		actionLine = ActionAlertStyle.Render(m.game.LastAction)
 	}
+	if m.game.UseLearned && m.game.LearnedModel != nil {
+		probability := "—"
+		if m.game.CurrentAIMove != nil && m.game.CurrentAIMove.MoveProbability != nil {
+			probability = fmt.Sprintf("%.1f%%", *m.game.CurrentAIMove.MoveProbability*100)
+		}
+		actionLine += fmt.Sprintf("\nP%d sim: %s", m.game.LearnedModel.Horizon, probability)
+	}
 
 	statsContent := fmt.Sprintf(
 		"%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s",
@@ -163,8 +170,17 @@ func (m *Model) renderRightPanel() string {
 		}
 	}
 	nextContent := strings.Join(nextPreviews, "\n\n")
+	nextHeight := 7
+	if m.game.LookaheadDepth > 0 {
+		queue := make([]string, len(m.game.NextQueue))
+		for i, piece := range m.game.NextQueue {
+			queue[i] = string(piece)
+		}
+		nextContent += "\n\n" + strings.Join(queue, " ")
+		nextHeight = 9
+	}
 
-	nextBox := PanelBoxStyle.Width(20).Height(7).Render(
+	nextBox := PanelBoxStyle.Width(20).Height(nextHeight).Render(
 		fmt.Sprintf("%s\n\n%s",
 			HeaderLabelStyle.Render("NEXT"),
 			lipgloss.NewStyle().Align(lipgloss.Center).Render(nextContent),
@@ -173,7 +189,7 @@ func (m *Model) renderRightPanel() string {
 
 	// 2. Controls Box (fixed height)
 	controlsContent := fmt.Sprintf(
-		"%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s",
+		"%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s",
 		KeyStyle.Render("← / →  "), DescStyle.Render("Mover"),
 		KeyStyle.Render("↓      "), DescStyle.Render("Soft Drop"),
 		KeyStyle.Render("Espaço "), DescStyle.Render("Hard Drop"),
@@ -181,6 +197,7 @@ func (m *Model) renderRightPanel() string {
 		KeyStyle.Render("Z      "), DescStyle.Render("Girar Anti-h"),
 		KeyStyle.Render("C / H  "), DescStyle.Render("Guardar Peça"),
 		KeyStyle.Render("B / Tab"), DescStyle.Render("Auto-Play (IA)"),
+		KeyStyle.Render("M      "), DescStyle.Render("Escolher IA"),
 		KeyStyle.Render("4 / I  "), DescStyle.Render("4 Linhas (I)"),
 		KeyStyle.Render("T      "), DescStyle.Render("Setup Tetris"),
 		KeyStyle.Render("P      "), DescStyle.Render("Pausar"),
@@ -188,7 +205,7 @@ func (m *Model) renderRightPanel() string {
 		KeyStyle.Render("Q / Esc"), DescStyle.Render("Sair"),
 	)
 
-	controlsBox := PanelBoxStyle.Width(20).Height(14).Render(
+	controlsBox := PanelBoxStyle.Width(20).Height(15).Render(
 		fmt.Sprintf("%s\n\n%s",
 			HeaderLabelStyle.Render("CONTROLES"),
 			controlsContent,
@@ -204,6 +221,25 @@ func (m *Model) View() string {
 	if m.width < MinTerminalWidth || m.height < MinTerminalHeight {
 		return RenderTooSmallView(m.width, m.height)
 	}
+	if m.aiMenuOpen {
+		options := []string{"1. IA atual (v2)", "2. Lookahead 10 peças (beam 4)", "3. IA híbrida (experimental)"}
+		if m.game.LearnedModel == nil {
+			options[2] += " — indisponível"
+		}
+		for i := range options {
+			prefix := "  "
+			if i == m.aiMenuChoice {
+				prefix = "> "
+			}
+			options[i] = prefix + options[i]
+		}
+		content := HeaderLabelStyle.Render("ESCOLHER IA") + "\n\n" + strings.Join(options, "\n\n") +
+			"\n\n↑/↓ ou 1/2/3: escolher\nEnter: confirmar | Esc/M: voltar\n\nAlterar IA reinicia a partida.\nB/Tab: ativar Auto-Play no jogo."
+		if m.game.LearnedModel != nil {
+			content += fmt.Sprintf("\nModelo: sobrevivência por %d colocações simuladas.", m.game.LearnedModel.Horizon)
+		}
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, PanelBoxStyle.Padding(1, 2).Render(content))
+	}
 
 	headerText := TitleStyle.Render("🎮  T E T R I S   G O  🎮")
 	if m.game.AutoPlay {
@@ -212,6 +248,12 @@ func (m *Model) View() string {
 		if engine.IsCleanupMode(m.game) {
 			badgeColor = "#fab387" // Orange
 			badgeText = "🤖 AUTO-PLAY [🚨 LIMPEZA 65%+]"
+		}
+		if m.game.LookaheadDepth > 0 {
+			badgeText += fmt.Sprintf(" [%d peças]", m.game.LookaheadDepth)
+		}
+		if m.game.UseLearned {
+			badgeText += " [HÍBRIDA]"
 		}
 		autoBadge := lipgloss.NewStyle().
 			Bold(true).

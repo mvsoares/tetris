@@ -35,8 +35,8 @@ func TestSimulatorRunsConcurrently(t *testing.T) {
 	}
 
 	prog := sim.GetProgress(0)
-	if prog.CompletedGames < 4 {
-		t.Errorf("expected at least 4 completed games, got %d", prog.CompletedGames)
+	if prog.CompletedGames != 4 {
+		t.Errorf("expected exactly 4 completed games, got %d", prog.CompletedGames)
 	}
 	if prog.TotalMoves == 0 {
 		t.Errorf("expected moves to be recorded")
@@ -52,21 +52,23 @@ func TestSimulatorRunsConcurrently(t *testing.T) {
 }
 
 func TestSimulatorWorkersClamping(t *testing.T) {
-	sim, err := New(Config{Workers: 100})
+	sim, err := New(Config{Workers: 100, LogPath: filepath.Join(t.TempDir(), "clamp.jsonl"), BufferSize: 1024})
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 	if sim.config.Workers != 50 {
 		t.Errorf("expected workers to be clamped to 50, got %d", sim.config.Workers)
 	}
+	t.Cleanup(func() { _ = sim.logger.Close() })
 
-	simZero, err := New(Config{Workers: 0})
+	simZero, err := New(Config{Workers: 0, LogPath: filepath.Join(t.TempDir(), "zero.jsonl"), BufferSize: 1024})
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 	if simZero.config.Workers != 1 {
 		t.Errorf("expected workers to be clamped to 1, got %d", simZero.config.Workers)
 	}
+	t.Cleanup(func() { _ = simZero.logger.Close() })
 }
 
 func TestSimulatorCleanAndReadLogs50Games(t *testing.T) {
@@ -101,7 +103,7 @@ func TestSimulatorCleanAndReadLogs50Games(t *testing.T) {
 	}
 
 	prog := sim.GetProgress(0)
-	if prog.CompletedGames < 50 {
+	if prog.CompletedGames != 50 {
 		t.Errorf("expected 50 completed games, got %d", prog.CompletedGames)
 	}
 
@@ -111,8 +113,8 @@ func TestSimulatorCleanAndReadLogs50Games(t *testing.T) {
 		t.Fatalf("ReadLogStats failed: %v", err)
 	}
 
-	if stats.TotalSessions < 50 {
-		t.Errorf("expected at least 50 logged sessions, got %d", stats.TotalSessions)
+	if stats.TotalSessions != 50 {
+		t.Errorf("expected exactly 50 logged sessions, got %d", stats.TotalSessions)
 	}
 	if stats.TotalMoves == 0 {
 		t.Errorf("expected moves to be recorded in log")

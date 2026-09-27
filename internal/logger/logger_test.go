@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -77,6 +79,39 @@ func TestLoggerWritesJSONL(t *testing.T) {
 
 	if lines != 2 {
 		t.Errorf("expected 2 log lines, got %d", lines)
+	}
+}
+
+func TestCloseReturnsEncodingErrorRepeatedly(t *testing.T) {
+	l, err := NewLoggerWithOptions(filepath.Join(t.TempDir(), "invalid.jsonl"), Options{BufferSize: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.LogMove(MoveLog{HeuristicScore: math.Inf(-1)})
+	for i := 0; i < 2; i++ {
+		if err := l.Close(); err == nil || !strings.Contains(err.Error(), "unsupported value") {
+			t.Fatalf("lost encoding error: %v", err)
+		}
+	}
+}
+
+func TestCloseReturnsFlushError(t *testing.T) {
+	l, err := NewLoggerWithOptions(filepath.Join(t.TempDir(), "closed.jsonl"), Options{BufferSize: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l.LogMove(MoveLog{SessionID: "test", MoveNumber: 1})
+	if err := l.Close(); err == nil || l.writeErr == nil {
+		t.Fatal("flush failure was hidden")
+	}
+}
+
+func TestReadLogStatsRejectsMalformedJSON(t *testing.T) {
+	if _, err := ReadLogStatsFromReader(strings.NewReader("{broken}\n")); err == nil {
+		t.Fatal("invalid JSON accepted")
 	}
 }
 

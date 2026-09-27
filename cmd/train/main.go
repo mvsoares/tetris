@@ -9,17 +9,34 @@ import (
 	"syscall"
 	"time"
 
+	"tetris/internal/engine"
 	"tetris/internal/simulator"
 )
 
 func main() {
 	workers := flag.Int("workers", 50, "Número de partidas simultâneas em background (1 a 50)")
 	totalGames := flag.Int("games", 100, "Total de partidas a simular (0 para contínuo até Ctrl+C)")
-	maxMoves := flag.Int("max-moves", 10000, "Limite máximo de jogadas/linhas por partida")
+	maxMoves := flag.Int("max-moves", 10000, "Limite máximo de jogadas por partida")
+	seed := flag.Int64("seed", 1, "Seed base reproduzível (partida n usa seed+n)")
+	quiet := flag.Bool("quiet", false, "Exibir apenas o resumo final, sem progresso periódico")
+	mode := flag.String("mode", "placement", "Simulação: placement (encaixe direto) ou gameplay (IA e gravidade reais)")
+	reserveWell := flag.Bool("reserve-well", false, "Manter penalidades rígidas do poço durante emergências (comparação)")
+	lookahead := flag.Int("lookahead", 0, "Experimental: look ahead 1..10 placements (0 = v2 policy)")
+	beamWidth := flag.Int("beam-width", 4, "Experimental search beam width (1..64)")
+	learned := flag.Bool("learned", false, "Ativar IA híbrida experimental (fallback se modelo indisponível)")
+	modelFile := flag.String("model", "models/move-risk.json", "Modelo local de risco")
 	logFile := flag.String("file", "logs/plays.jsonl", "Caminho do arquivo de log (.jsonl)")
 	clean := flag.Bool("clean", false, "Limpar/truncar arquivo de log antes de iniciar a simulação")
 	bufKB := flag.Int("buf-kb", 102400, "Tamanho do buffer de escrita de log em KB (padrão: 102400 KB = 100 MB)")
 	flag.Parse()
+	var model *engine.MoveModel
+	if *learned {
+		var err error
+		model, err = engine.LoadMoveModel(*modelFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Modelo indisponível; usando fallback: %v\n", err)
+		}
+	}
 
 	if *workers < 1 {
 		*workers = 1
@@ -36,6 +53,13 @@ func main() {
 		LogPath:         *logFile,
 		Clean:           *clean,
 		BufferSize:      *bufKB * 1024,
+		Seed:            *seed,
+		Mode:            *mode,
+		ReserveWell:     *reserveWell,
+		LookaheadDepth:  *lookahead,
+		BeamWidth:       *beamWidth,
+		LearnedModel:    model,
+		UseLearned:      *learned,
 	}
 
 	sim, err := simulator.New(cfg)
@@ -112,8 +136,15 @@ func main() {
 	}
 
 	startTime := time.Now()
+	if *quiet {
+		progressCallback = nil
+	}
 	err = sim.Run(ctx, progressCallback)
 	elapsed := time.Since(startTime)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Simulação interrompida ou falhou: %v\n", err)
+		os.Exit(1)
+	}
 
 	finalProg := sim.GetProgress(*workers)
 	tetrisRate := 0.0
@@ -136,7 +167,4 @@ func main() {
 	fmt.Printf("   ./analyze -file %s\n", *logFile)
 	fmt.Println("================================================================")
 
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Aviso: %v\n", err)
-	}
 }

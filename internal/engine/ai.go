@@ -3,15 +3,27 @@ package engine
 import (
 	"math"
 	"sort"
+
+	"tetris/internal/logger"
 )
 
 // AIMove represents the computed optimal move for the current turn.
 type AIMove struct {
-	UseHold        bool
-	TargetRotation int
-	TargetX        int
-	Score          float64
-	CleanupMode    bool
+	UseHold         bool
+	TargetRotation  int
+	TargetX         int
+	Score           float64
+	CleanupMode     bool
+	TargetY         int
+	HasTargetY      bool
+	Actions         []AIAction
+	Expected        []Piece
+	SearchDepth     int
+	SearchNodes     int
+	Decision        *logger.DecisionLog
+	MoveProbability *float64
+	LearnedUsed     bool
+	LearnedFallback string
 }
 
 // CleanUpHeightThreshold defines the traditional 65% baseline of the 20-row board (13 rows).
@@ -177,15 +189,26 @@ func IsCleanupMode(g *Game) bool {
 	return false
 }
 
-// FindBestMove calculates the best move for the game.
-// Enhanced using insights from 3.7+ million logged moves:
-// - 2-ply lookahead (anticipates Next piece to prevent terrain lock)
-// - Non-linear cliff penalties (solves O/S/Z piece failures)
-// - Anti-choke well protection for column 9
-// - Strict hole creation penalties during emergency cleanup
+// FindBestMove ranks legal, gravity-aware routes for the current/held piece.
+// Future-piece lookahead remains a faster placement approximation; each future
+// piece is replanned from its actual position when it becomes active.
 func FindBestMove(g *Game) *AIMove {
+	move := findPolicyMove(g)
+	if move != nil && g.Logger != nil {
+		move.Decision = captureDecision(g, move)
+	}
+	return move
+}
+
+func findPolicyMove(g *Game) *AIMove {
 	if g.CurrentPiece == nil || g.Board == nil {
 		return nil
+	}
+	if g.UseLearned {
+		return findLearnedMove(g)
+	}
+	if g.LookaheadDepth > 0 {
+		return findBeamMove(g)
 	}
 
 	cleanupMode := IsCleanupMode(g)
@@ -203,7 +226,9 @@ func FindBestMove(g *Game) *AIMove {
 		nextNextType = g.NextQueue[1]
 	}
 
-	bestRot, bestX, bestScore := findBestPlacementWithLookahead(g.Board, g.CurrentPiece, nextType, nextNextType, cleanupMode)
+	bestCandidate, bestScore := rankPlacements(reachablePlacements(g, g.CurrentPiece, cleanupMode), nextType, nextNextType, cleanupMode, !g.ReserveWell)
+	bestRot, bestX := bestCandidate.rotation, bestCandidate.x
+	var holdCandidate candidatePlacement
 
 	bestMove := &AIMove{
 		UseHold:        false,
@@ -237,7 +262,9 @@ func FindBestMove(g *Game) *AIMove {
 
 		if candidateHoldType != "" {
 			holdPiece := NewPiece(candidateHoldType)
-			rotH, xH, scoreH := findBestPlacementWithLookahead(g.Board, holdPiece, subsequentNext, subsequentNextNext, cleanupMode)
+			var scoreH float64
+			holdCandidate, scoreH = rankPlacements(reachablePlacements(g, holdPiece, cleanupMode), subsequentNext, subsequentNextNext, cleanupMode, !g.ReserveWell)
+			rotH, xH := holdCandidate.rotation, holdCandidate.x
 
 			// If current piece is I, but cannot clear 4 lines yet and board is safe (< 12 rows),
 			// save it in Hold for the upcoming Tetris!
@@ -249,7 +276,7 @@ func FindBestMove(g *Game) *AIMove {
 			candidateNotO := candidateHoldType != PieceO && candidateHoldType != PieceS && candidateHoldType != PieceZ
 			oStrained := isO && candidateNotO && (GetBumpiness(g.Board) >= 12 || GetMaxHeight(g.Board) >= 10)
 
-			if g.CurrentPiece.Type == PieceI && candidateHoldType != PieceI && GetMaxHeight(g.Board) < 12 && !cleanupMode {
+			if scoreH != -math.MaxFloat64 && g.CurrentPiece.Type == PieceI && candidateHoldType != PieceI && GetMaxHeight(g.Board) < 12 && !cleanupMode {
 				bestMove = &AIMove{
 					UseHold:        true,
 					TargetRotation: rotH,
@@ -297,24 +324,39 @@ func FindBestMove(g *Game) *AIMove {
 		}
 	}
 
+	if bestMove.Score == -math.MaxFloat64 {
+		return nil
+	}
+	if bestMove.UseHold {
+		bestCandidate = holdCandidate
+	}
+	bestMove.TargetY, bestMove.HasTargetY = bestCandidate.y, true
+	bestMove.Actions, bestMove.Expected = bestCandidate.actions, bestCandidate.expected
 	return bestMove
 }
 
 type candidatePlacement struct {
 	rotation int
 	x        int
+	y        int
 	board    *Board
 	score    float64
+	actions  []AIAction
+	expected []Piece
 }
 
 // findBestPlacementWithLookahead tests valid placements and evaluates the top candidates with next-piece lookahead.
 // When nextNextType is provided (used during dangerous board states), the top few candidates get an
 // additional ply evaluated using the piece known to follow "next", so the AI can see two moves ahead
 // instead of discovering a fatal notch only when the hard-to-place piece (O/S/Z) actually arrives.
-func findBestPlacementWithLookahead(b *Board, p *Piece, nextType, nextNextType TetrominoType, cleanupMode bool) (int, int, float64) {
-	candidates := getCandidatePlacements(b, p, cleanupMode)
+func findBestPlacementWithLookahead(b *Board, p *Piece, nextType, nextNextType TetrominoType, cleanupMode bool, emergency ...bool) (int, int, float64) {
+	cand, score := rankPlacements(getCandidatePlacements(b, p, cleanupMode, emergency...), nextType, nextNextType, cleanupMode, emergency...)
+	return cand.rotation, cand.x, score
+}
+
+func rankPlacements(candidates []candidatePlacement, nextType, nextNextType TetrominoType, cleanupMode bool, emergency ...bool) (candidatePlacement, float64) {
 	if len(candidates) == 0 {
-		return 0, 3, -math.MaxFloat64
+		return candidatePlacement{x: 3}, -math.MaxFloat64
 	}
 
 	// Sort candidates by immediate score descending
@@ -324,7 +366,7 @@ func findBestPlacementWithLookahead(b *Board, p *Piece, nextType, nextNextType T
 
 	// If no next piece available, return top candidate directly
 	if nextType == "" {
-		return candidates[0].rotation, candidates[0].x, candidates[0].score
+		return candidates[0], candidates[0].score
 	}
 
 	// Evaluate top 5 candidates with 1-ply lookahead
@@ -343,20 +385,24 @@ func findBestPlacementWithLookahead(b *Board, p *Piece, nextType, nextNextType T
 
 	nextPiece := NewPiece(nextType)
 	bestCombinedScore := -math.MaxFloat64
-	bestRot := candidates[0].rotation
-	bestX := candidates[0].x
+	bestCandidate := candidates[0]
 
 	for i := 0; i < topLimit; i++ {
 		cand := candidates[i]
 
 		var nextScore float64
 		if deep {
-			_, _, nextScore = findBestPlacementWithLookahead(cand.board, nextPiece, nextNextType, "", cleanupMode)
+			_, _, nextScore = findBestPlacementWithLookahead(cand.board, nextPiece, nextNextType, "", cleanupMode, emergency...)
 		} else {
-			_, _, nextScore = findBestPlacementSimple(cand.board, nextPiece, cleanupMode)
+			_, _, nextScore = findBestPlacementSimple(cand.board, nextPiece, cleanupMode, emergency...)
 		}
 
 		weight := 0.65
+		// A terminal continuation is a finite penalty, never an overflowing
+		// sentinel that makes JSON rewards impossible to encode.
+		if nextScore == -math.MaxFloat64 {
+			nextScore = -1e12
+		}
 		if nextScore < -15000.0 {
 			weight = 0.85
 		}
@@ -364,12 +410,11 @@ func findBestPlacementWithLookahead(b *Board, p *Piece, nextType, nextNextType T
 		combined := cand.score + weight*nextScore
 		if combined > bestCombinedScore {
 			bestCombinedScore = combined
-			bestRot = cand.rotation
-			bestX = cand.x
+			bestCandidate = cand
 		}
 	}
 
-	return bestRot, bestX, bestCombinedScore
+	return bestCandidate, bestCombinedScore
 }
 
 // isReachable checks if a piece can navigate horizontally from spawnX to targetX across the top of the board
@@ -412,8 +457,11 @@ func isReachable(b *Board, p *Piece, targetRot, targetX int) bool {
 	return false
 }
 
-func getCandidatePlacements(b *Board, p *Piece, cleanupMode bool) []candidatePlacement {
+func getCandidatePlacements(b *Board, p *Piece, cleanupMode bool, emergency ...bool) []candidatePlacement {
 	var candidates []candidatePlacement
+	if !b.IsValidPosition(NewPiece(p.Type)) {
+		return nil
+	}
 
 	test := Piece{
 		Type:  p.Type,
@@ -458,10 +506,11 @@ func getCandidatePlacements(b *Board, p *Piece, cleanupMode bool) []candidatePla
 			linesCleared := simBoard.ClearLines()
 
 			landingPiece := test
-			score := evaluatePlacement(simBoard, &landingPiece, linesCleared, cleanupMode)
+			score := evaluatePlacementWithSupport(b, simBoard, &landingPiece, linesCleared, cleanupMode, emergency...)
 			candidates = append(candidates, candidatePlacement{
 				rotation: rot,
 				x:        x,
+				y:        ghostY,
 				board:    simBoard,
 				score:    score,
 			})
@@ -472,10 +521,13 @@ func getCandidatePlacements(b *Board, p *Piece, cleanupMode bool) []candidatePla
 }
 
 // findBestPlacementSimple is a fast 1-ply evaluator used in lookahead simulations.
-func findBestPlacementSimple(b *Board, p *Piece, cleanupMode bool) (int, int, float64) {
+func findBestPlacementSimple(b *Board, p *Piece, cleanupMode bool, emergency ...bool) (int, int, float64) {
 	bestScore := -math.MaxFloat64
 	bestRot := 0
 	bestX := 3
+	if !b.IsValidPosition(NewPiece(p.Type)) {
+		return bestRot, bestX, bestScore
+	}
 
 	test := Piece{
 		Type:  p.Type,
@@ -518,7 +570,7 @@ func findBestPlacementSimple(b *Board, p *Piece, cleanupMode bool) (int, int, fl
 			linesCleared := simBoard.ClearLines()
 
 			landingPiece := test
-			score := evaluatePlacement(simBoard, &landingPiece, linesCleared, cleanupMode)
+			score := evaluatePlacementWithSupport(b, simBoard, &landingPiece, linesCleared, cleanupMode, emergency...)
 			if score > bestScore {
 				bestScore = score
 				bestRot = rot
@@ -535,7 +587,7 @@ func findBestPlacementSimple(b *Board, p *Piece, cleanupMode bool) (int, int, fl
 // 1. Hole drill in cleanup mode
 // 2. High spiky bumpiness creating O/S/Z top-outs
 // 3. Choking column 9 well
-func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) float64 {
+func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool, emergency ...bool) float64 {
 	colHeights := b.ColHeights()
 	maxHeight := 0
 	aggHeight := 0
@@ -561,11 +613,11 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) f
 		case 4:
 			linesScore = 180000.0 // Tetris is best
 		case 3:
-			linesScore = 95000.0  // Huge reward for triple
+			linesScore = 95000.0 // Huge reward for triple
 		case 2:
-			linesScore = 65000.0  // Great reward for double
+			linesScore = 65000.0 // Great reward for double
 		case 1:
-			linesScore = 35000.0  // Good reward for single
+			linesScore = 35000.0 // Good reward for single
 		case 0:
 			linesScore = -15000.0 // Penalize placing pieces without clearing lines
 		}
@@ -618,26 +670,26 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) f
 		isVerticalIInCol9 = inCol9
 	}
 
-	// RULE 1: Vertical I in column 9 is STRICTLY for full 4-line TETRIS!
+	// Prefer using a vertical I in column 9 for a full 4-line Tetris.
 	// Placing a vertical I in column 9 without 4 lines cleared leaves 1-4 blocks sticking up,
 	// creating a wall in the corner that closes the well and prevents pieces from passing to the corner.
 	if isVerticalIInCol9 {
 		if linesCleared == 4 {
 			linesScore += 90000.0 // Super reward for clean 4-line Tetris in the corner well
 		} else {
-			// Catastrophic penalty: never put vertical I high in corner without clearing all 4 lines!
+			// Strong normal/strict-policy penalty; relaxed in emergency cleanup below.
 			wellPenalties += 120000.0
 		}
 	}
 
-	// RULE 2: Anti-Spire - Column 9 must NEVER be taller than Column 8!
+	// Penalize a spire in column 9 that rises above column 8.
 	// If column 9 is taller than column 8, it forms an elevated wall on the right boundary,
 	// closing off the corner and blocking pieces from sliding to the corner.
 	if colHeights[9] > colHeights[8] {
 		wellPenalties += float64(colHeights[9]-colHeights[8]) * 45000.0
 	}
 
-	// RULE 3: Anti-Closure / Anti-Roof - The corner must NEVER be closed/roofed!
+	// Penalize closing/roofing the well, with emergency scaling below.
 	// If column 9 has ANY block with an empty space below, the well is choked from above.
 	// This applies in BOTH normal mode and cleanup mode, at ANY height (even below 65%).
 	if colHeights[9] > 0 {
@@ -692,6 +744,12 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) f
 				}
 			}
 		}
+	}
+
+	if cleanupMode && len(emergency) > 0 && emergency[0] {
+		// In danger, an accessible partial clear is worth more than preserving
+		// the Tetris well. Hole/blockade penalties remain fully enforced.
+		wellPenalties *= 0.08
 	}
 
 	// 3. Holes & Blockades: empty cells covered by filled blocks
@@ -754,20 +812,6 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) f
 		}
 	}
 
-	// Piece O Platform Matching (Targeting #2 top-out culprit):
-	// O (2x2) requires a flat 2-cell bed. If placed across unequal columns, penalize; if flat, reward!
-	if p.Type == PieceO && p.X >= 0 && p.X+1 < BoardWidth {
-		oDiff := colHeights[p.X] - colHeights[p.X+1]
-		if oDiff < 0 {
-			oDiff = -oDiff
-		}
-		if oDiff == 0 && linesCleared == 0 {
-			pieceRiskPenalty -= 3500.0 // Reward placing O on a perfectly flat 2-cell surface
-		} else if oDiff >= 2 {
-			pieceRiskPenalty += float64(oDiff) * 3500.0 // Heavy penalty for placing O across steps/cliffs
-		}
-	}
-
 	// Piece S Alignment (Targeting #1 top-out culprit):
 	// Horizontal S is stable; vertical S has an overhang tail that traps holes in uneven terrain.
 	if p.Type == PieceS {
@@ -816,7 +860,7 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) f
 	bumpinessWeight := 160.0
 
 	if cleanupMode {
-		holeWeight = 55000.0 // Mathematically guarantees AI will never drill a hole to clear 1 line
+		holeWeight = 55000.0 // Strongly discourage creating holes during cleanup.
 		blockadeWeight = 1500.0
 		bumpinessWeight = 220.0
 	}
@@ -835,9 +879,9 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) f
 	// Center dome (cols 2..5 taller than flanks) causes fatal O/S/Z collisions at row 0.
 	spawnChutePenalty := 0.0
 	if centerMax >= 9 {
-		spawnChutePenalty += float64((centerMax - 8) * (centerMax - 8)) * 400.0
+		spawnChutePenalty += float64((centerMax-8)*(centerMax-8)) * 400.0
 		if centerMax >= 12 {
-			spawnChutePenalty += float64(centerMax - 11) * 15000.0
+			spawnChutePenalty += float64(centerMax-11) * 15000.0
 		}
 	}
 
@@ -875,5 +919,24 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool) f
 		pieceRiskPenalty +
 		landingBonus
 
+	return score
+}
+
+// Measure the support on the input board: locking an O makes its top two
+// heights equal even when one side was unsupported before placement.
+func evaluatePlacementWithSupport(before, after *Board, p *Piece, lines int, cleanup bool, emergency ...bool) float64 {
+	score := evaluatePlacement(after, p, lines, cleanup, emergency...)
+	if p.Type == PieceO && p.X >= 0 && p.X+1 < BoardWidth {
+		heights := before.ColHeights()
+		diff := heights[p.X] - heights[p.X+1]
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff == 0 && lines == 0 {
+			score += 3500
+		} else if diff >= 2 {
+			score -= float64(diff) * 3500
+		}
+	}
 	return score
 }

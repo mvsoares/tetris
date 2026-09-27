@@ -1,0 +1,52 @@
+{
+  "seeds": {
+    "start": 101,
+    "end": 120
+  },
+  "games": 20,
+  "max_moves": 1000,
+  "mode": "gameplay",
+  "default_policy": {
+    "policy": "heuristic-9-0-v2",
+    "survivors": 18,
+    "mean_score": 1343355.3,
+    "mean_moves": 965.55,
+    "mean_lines": 381.35,
+    "tetris_line_percent": 55.591975875180275
+  },
+  "prototype": {
+    "policy": "beam-v1-depth10-width4",
+    "survivors": 16,
+    "mean_score": 1281036.05,
+    "mean_moves": 935.8,
+    "mean_lines": 369.1,
+    "tetris_line_percent": 58.087239230560826
+  },
+  "final_policy": {
+    "policy": "beam-v2-depth10-width4",
+    "survivors": 20,
+    "mean_score": 1496056.3,
+    "mean_moves": 1000,
+    "mean_lines": 396.6,
+    "tetris_line_percent": 70.65052950075643,
+    "planned_moves": 20000,
+    "plan_misses": 0,
+    "watchdog_drops": 0,
+    "depth_histogram": {
+      "10": 20000
+    },
+    "search_nodes": 46329031,
+    "mean_search_nodes": 2316.45155,
+    "max_search_nodes": 2516
+  },
+  "mean_score_gain_percent": 11.367134219815123,
+  "caveat": "Amostra exploratória pequena e reutilizada; prévia conhecida maior; tempo virtual limitado; não são 1000 partidas novas nem garantia de latência no pior caso.",
+  "latency_ms": {
+    "empty_v2": 1.768117,
+    "empty_depth10_width4": 22.136706,
+    "empty_depth10_width8": 44.078578,
+    "empty_depth10_width16": 82.137557,
+    "stressed_v2": 7.322894,
+    "stressed_depth10_width4": 20.811204
+  }
+}

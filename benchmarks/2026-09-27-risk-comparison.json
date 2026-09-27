@@ -1,0 +1,67 @@
+{
+  "date": "2026-09-27",
+  "model_id": "d6ea5226142d",
+  "target": "survive-v2-placement-sampled-7bag",
+  "horizon": 50,
+  "source": {
+    "seeds": [
+      1001,
+      1030
+    ],
+    "games": 30,
+    "moves": 29165,
+    "sampled_decisions": 120,
+    "candidates_per_decision": 4,
+    "rollouts_per_candidate": 4,
+    "sampling_seed": 20260927
+  },
+  "validation": {
+    "training_rollouts": 1552,
+    "validation_rollouts": 368,
+    "training_seed_count": 24,
+    "validation_seed_count": 6,
+    "brier": 0.02149952710872872,
+    "prior_brier": 0.03166049451931609,
+    "log_loss": 0.07002435600386066
+  },
+  "gameplay": {
+    "seeds": [
+      5001,
+      5020
+    ],
+    "games": 20,
+    "max_moves": 1000,
+    "v2": {
+      "survivors": 19,
+      "mean_score": 1364263.8,
+      "mean_lines": 386.25,
+      "planned_moves": 19527,
+      "plan_misses": 0
+    },
+    "hybrid": {
+      "survivors": 16,
+      "mean_score": 1278346.4,
+      "mean_lines": 371.5,
+      "planned_moves": 18891,
+      "plan_misses": 0,
+      "learned_turns": 48,
+      "predictions": 18751,
+      "unsupported_final_plans": 140,
+      "small_margin_final_plans": 18738
+    },
+    "paired": {
+      "both_survive": 16,
+      "both_lose": 1,
+      "improved_survival": 0,
+      "regressed_survival": 3
+    },
+    "mean_score_change_percent": -6.297711630258029
+  },
+  "latency": {
+    "probability_ns": 832.7,
+    "probability_allocations": 0,
+    "v2_empty_decision_ms": 0.970824,
+    "hybrid_empty_decision_ms": 1.526921
+  },
+  "caveat": "Protótipo experimental. Menor erro de previsão não produziu melhor gameplay; alvo por encaixe direto com continuidade v2, diferente da política híbrida na UI. Validação pequena, rollouts relacionados, médias de latência sem garantia de pior caso."
+}

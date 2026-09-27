@@ -1,0 +1,80 @@
+{
+  "sessions": 20,
+  "finished_sessions": 20,
+  "unknown_sessions": 0,
+  "losses": 1,
+  "end_reasons": {
+    "move_limit": 19,
+    "top_out": 1
+  },
+  "total_moves": 19528,
+  "total_lines": 7725,
+  "tetris_line_percent": 54.679611650485434,
+  "moves_per_session": {
+    "mean": 976.4,
+    "min": 528,
+    "p10": 1000,
+    "median": 1000,
+    "p90": 1000,
+    "max": 1000
+  },
+  "lines_per_session": {
+    "mean": 386.25,
+    "min": 195,
+    "p10": 393,
+    "median": 396,
+    "p90": 398,
+    "max": 398
+  },
+  "failed_pieces": {
+    "I": 1
+  },
+  "placed_pieces": {
+    "I": 2787,
+    "J": 2792,
+    "L": 2793,
+    "O": 2791,
+    "S": 2786,
+    "T": 2792,
+    "Z": 2787
+  },
+  "losses_in_cleanup": 1,
+  "mean_death_height": 20,
+  "mean_death_holes": 3,
+  "mean_death_bumpiness": 29,
+  "mean_death_column_heights": [
+    19,
+    17,
+    19,
+    19,
+    19,
+    20,
+    16,
+    18,
+    18,
+    0
+  ],
+  "death_height_distribution": {
+    "20": 1
+  },
+  "mean_holes_after_move": 0.24503277345350266,
+  "mean_bumpiness_after_move": 10.730079885292913,
+  "cleanup_moves": 2201,
+  "hole_creating_moves": 251,
+  "hole_creating_pieces": {
+    "J": 57,
+    "L": 39,
+    "O": 24,
+    "S": 70,
+    "T": 11,
+    "Z": 50
+  },
+  "planned_moves": 19527,
+  "plan_telemetry_moves": 19528,
+  "plan_misses": 0,
+  "watchdog_drops": 0,
+  "ai_replans": 0,
+  "sessions_with_plan_misses": 0,
+  "losses_with_plan_misses": 0,
+  "losses_with_plan_miss_in_last_10_moves": 0
+}
