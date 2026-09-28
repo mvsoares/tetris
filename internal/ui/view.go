@@ -247,7 +247,9 @@ func (m *Model) View() string {
 		badgeText := "🤖 AUTO-PLAY ON"
 		if engine.IsCleanupMode(m.game) {
 			badgeColor = "#fab387" // Orange
-			badgeText = "🤖 AUTO-PLAY [🚨 LIMPEZA 65%+]"
+			badgeText = fmt.Sprintf("🤖 AUTO-PLAY [🚨 LIMPEZA %d%%+]", engine.CleanupThresholdPercent(m.game))
+		} else if engine.IsHighSpeedMode(m.game) {
+			badgeText = "🤖 AUTO-PLAY ON [⚡ TETRIS 40%]"
 		}
 		if m.game.LookaheadDepth > 0 {
 			badgeText += fmt.Sprintf(" [%d peças]", m.game.LookaheadDepth)

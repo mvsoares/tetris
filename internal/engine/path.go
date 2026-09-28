@@ -69,6 +69,9 @@ func reachablePlacements(g *Game, start *Piece, cleanup bool) []candidatePlaceme
 	visited[[3]int{start.X, start.Y, start.Rotation}] = true
 	landings := make(map[[3]int]bool, 64)
 	candidates := make([]candidatePlacement, 0, 40)
+	highSpeed := g.Level >= HighSpeedAwarenessStartLevel
+	highSpeedStrict := IsHighSpeedMode(g)
+	beforeMaxH := beforeBits.MaxHeight()
 	add := func(p Piece, index int, last AIAction) {
 		if p.Y < 0 {
 			return
@@ -83,11 +86,15 @@ func reachablePlacements(g *Game, start *Piece, cleanup bool) []candidatePlaceme
 		after.LockPiece(&p)
 		cleared := after.ClearLines()
 		afterBits, _ := beforeBits.LockAndClear(pIdx, p.Rotation, p.X, p.Y)
+		score := evaluateBitBoardWithSupport(beforeBits, afterBits, p.Type, p.Rotation, p.X, p.Y, cleared, cleanup, !g.ReserveWell, highSpeed)
+		if highSpeedStrict && p.X <= 1 && len(actions) > 4 && beforeMaxH >= HighSpeedCleanupThreshold {
+			score -= float64(len(actions)-4) * 1800.0
+		}
 		candidates = append(candidates, candidatePlacement{
 			rotation: p.Rotation, x: p.X, y: p.Y, board: after,
 			bits:    afterBits,
 			hasBits: true,
-			score:   evaluateBitBoardWithSupport(beforeBits, afterBits, p.Type, p.Rotation, p.X, p.Y, cleared, cleanup, !g.ReserveWell),
+			score:   score,
 			actions: actions, expected: expected,
 		})
 	}

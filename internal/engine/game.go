@@ -592,6 +592,91 @@ func (g *Game) ToggleAutoPlay() bool {
 	return g.AutoPlay
 }
 
+// canFollowRemainingPlan checks whether the remaining planned actions can still
+// legally reach the planned landing when UI timer jitter causes the active piece's
+// Y coordinate to differ from Expected[0].Y while X, Rotation, and Type match.
+func canFollowRemainingPlan(b *Board, cur Piece, plan *AIMove) bool {
+	if b == nil || plan == nil || len(plan.Expected) == 0 || len(plan.Actions) == 0 {
+		return false
+	}
+	if cur.X != plan.Expected[0].X || cur.Rotation != plan.Expected[0].Rotation || cur.Type != plan.Expected[0].Type {
+		return false
+	}
+	dy := cur.Y - plan.Expected[0].Y
+	if dy == 0 {
+		return true
+	}
+	p := cur
+	for i, act := range plan.Actions {
+		if i > 0 {
+			if i >= len(plan.Expected) {
+				return false
+			}
+			// Apply the vertical drop that occurred in the original plan between steps i-1 and i
+			origDrop := plan.Expected[i].Y - plan.Expected[i-1].Y
+			if plan.Actions[i-1] == AIDown {
+				origDrop--
+			}
+			for d := 0; d < origDrop; d++ {
+				down := p
+				down.Y++
+				if !b.IsValidPosition(&down) {
+					return false
+				}
+				p = down
+			}
+		}
+		switch act {
+		case AILeft:
+			p.X--
+			if !b.IsValidPosition(&p) {
+				return false
+			}
+		case AIRight:
+			p.X++
+			if !b.IsValidPosition(&p) {
+				return false
+			}
+		case AIRotateCW:
+			if !b.TryRotate(&p, 1) {
+				return false
+			}
+		case AIRotateCCW:
+			if !b.TryRotate(&p, -1) {
+				return false
+			}
+		case AIDown:
+			p.Y++
+			if !b.IsValidPosition(&p) {
+				return false
+			}
+		case AIHardDrop:
+			ghostY := b.GetGhostY(&p)
+			if p.X != plan.TargetX || p.Rotation != plan.TargetRotation {
+				return false
+			}
+			if plan.HasTargetY && ghostY != plan.TargetY {
+				return false
+			}
+			for j := range plan.Expected {
+				plan.Expected[j].Y += dy
+			}
+			return true
+		}
+	}
+	ghostY := b.GetGhostY(&p)
+	if p.X != plan.TargetX || p.Rotation != plan.TargetRotation {
+		return false
+	}
+	if plan.HasTargetY && ghostY != plan.TargetY {
+		return false
+	}
+	for j := range plan.Expected {
+		plan.Expected[j].Y += dy
+	}
+	return true
+}
+
 // StepAI executes one action step towards the computed optimal placement.
 // Returns true if an action was taken.
 func (g *Game) StepAI() bool {
@@ -601,13 +686,16 @@ func (g *Game) StepAI() bool {
 	for attempt := 0; attempt < 2; attempt++ {
 		if g.CurrentAIMove != nil {
 			p := g.CurrentAIMove
-			if len(p.Expected) == 0 || len(p.Actions) == 0 || p.Expected[0].X != g.CurrentPiece.X || p.Expected[0].Y != g.CurrentPiece.Y || p.Expected[0].Rotation != g.CurrentPiece.Rotation || p.Expected[0].Type != g.CurrentPiece.Type {
+			if len(p.Expected) == 0 || len(p.Actions) == 0 || p.Expected[0].X != g.CurrentPiece.X || p.Expected[0].Rotation != g.CurrentPiece.Rotation || p.Expected[0].Type != g.CurrentPiece.Type {
+				g.CurrentAIMove = nil
+				g.AIReplans++
+			} else if p.Expected[0].Y != g.CurrentPiece.Y && !canFollowRemainingPlan(g.Board, *g.CurrentPiece, p) {
 				g.CurrentAIMove = nil
 				g.AIReplans++
 			}
 		}
 		if g.CurrentAIMove == nil {
-			g.CurrentAIMove = FindBestMove(g)
+			g.CurrentAIMove = findPolicyMove(g)
 			if g.CurrentAIMove == nil {
 				g.gameOver(EndNoLegalMove)
 				return false
@@ -618,11 +706,14 @@ func (g *Game) StepAI() bool {
 					return false
 				}
 				g.learnedMoveThisTurn = g.learnedMoveThisTurn || learnedHold
-				g.CurrentAIMove = FindBestMove(g)
+				g.CurrentAIMove = findPolicyMove(g)
 				if g.CurrentAIMove == nil {
 					g.gameOver(EndNoLegalMove)
 					return false
 				}
+			}
+			if g.Logger != nil {
+				g.CurrentAIMove.Decision = captureDecision(g, g.CurrentAIMove)
 			}
 		}
 		plan := g.CurrentAIMove

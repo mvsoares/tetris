@@ -290,8 +290,8 @@ func candidateFeatures(g *Game, c riskCandidate) []float64 {
 		if c.next+1 < len(g.NextQueue) {
 			tailQueue = g.NextQueue[c.next+1:]
 		}
-		nextCleanup := isCleanupModeBitBoard(afterBits, next, c.hold, tailQueue)
-		_, _, rawNext := findBestBitPlacementSimple(afterBits, next, nextCleanup, !g.ReserveWell)
+		nextCleanup := isCleanupModeBitBoardWithLevel(afterBits, g.Level, next, c.hold, tailQueue)
+		_, _, rawNext := findBestBitPlacementSimple(afterBits, next, nextCleanup, !g.ReserveWell, g.Level >= HighSpeedAwarenessStartLevel)
 		if rawNext == -math.MaxFloat64 {
 			nextLookahead = -5.0
 		} else {
@@ -341,10 +341,13 @@ func findLearnedMove(g *Game) *AIMove {
 	sort.SliceStable(cs, func(i, j int) bool { return cs[i].placement.score > cs[j].placement.score })
 	var baseline float64
 	baselineHoles := g.Board.CountHoles()
+	baselineMaxH := g.Board.MaxHeight()
 	found := false
 	for _, c := range cs {
 		if matchesCandidate(move, c) {
-			baselineHoles = c.bitBoard().CountHoles()
+			cb := c.bitBoard()
+			baselineHoles = cb.CountHoles()
+			baselineMaxH = cb.MaxHeight()
 			p, ok := g.LearnedModel.Predict(candidateFeatures(g, c))
 			if ok {
 				baseline = p
@@ -362,17 +365,30 @@ func findLearnedMove(g *Game) *AIMove {
 	if baseline >= 0.88 || (baseline >= 0.80 && move.Score > -80000) {
 		return move
 	}
+	highSpeed := IsHighSpeedMode(g)
 	best := baseline
 	var chosen *AIMove
 	for i, c := range cs {
 		if i >= 6 {
 			break
 		}
-		if c.bitBoard().CountHoles() > baselineHoles {
+		cb := c.bitBoard()
+		if cb.CountHoles() > baselineHoles {
 			continue
 		}
 		if c.useHold != move.UseHold {
 			continue
+		}
+		if highSpeed {
+			// In high-speed mode, never override the 40%-threshold baseline with a move
+			// that creates a left-corridor wall or exceeds the 40% (8-row) ceiling.
+			afterHeights := cb.ColHeights()
+			if afterHeights[1] > afterHeights[0]+1 || afterHeights[2] > afterHeights[0]+2 {
+				continue
+			}
+			if baselineMaxH <= HighSpeedCleanupThreshold && cb.MaxHeight() > HighSpeedCleanupThreshold {
+				continue
+			}
 		}
 		p, ok := g.LearnedModel.Predict(candidateFeatures(g, c))
 		if ok && p >= 0.90 && p > baseline+0.05 && p > best {

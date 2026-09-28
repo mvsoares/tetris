@@ -160,7 +160,8 @@ func findBeamMove(g *Game) *AIMove {
 						next++
 					}
 				}
-				cleanup := isCleanupModeBitBoard(parentBits, pieceType, holdType, g.NextQueue[next:])
+				plyLevel := g.Level + depth/3
+				cleanup := isCleanupModeBitBoardWithLevel(parentBits, plyLevel, pieceType, holdType, g.NextQueue[next:])
 				var placements []candidatePlacement
 				if depth == 0 {
 					piece := NewPiece(pieceType)
@@ -169,7 +170,7 @@ func findBeamMove(g *Game) *AIMove {
 					}
 					placements = reachablePlacements(g, piece, cleanup)
 				} else {
-					placements = getCandidateBitPlacements(parentBits, pieceType, cleanup, !g.ReserveWell)
+					placements = getCandidateBitPlacements(parentBits, pieceType, cleanup, !g.ReserveWell, plyLevel >= HighSpeedAwarenessStartLevel)
 				}
 				for _, placement := range placements {
 					nodes++

@@ -392,6 +392,109 @@ func TestBitBoardEquivalenceWithBoard(t *testing.T) {
 	}
 }
 
+func TestHighSpeed40PercentThresholdAcrossAllThreeAIModes(t *testing.T) {
+	// At level 1, a clean 8-row (40%) stack is NOT in cleanup mode (threshold is 14 / 65%+).
+	// At HighSpeedModeLevel (75) and Level 100+, the 40% threshold (8 rows) engages across v2, beam, and hybrid.
+	build8RowBoard := func() *Board {
+		b := NewBoard()
+		for y := BoardHeight - HighSpeedCleanupThreshold; y < BoardHeight; y++ {
+			for x := 0; x < 9; x++ {
+				b.Cells[y][x] = Cell{Filled: true}
+			}
+		}
+		return b
+	}
 
+	gLow := NewGame()
+	gLow.Board = build8RowBoard()
+	gLow.Level = 1
+	gLow.CurrentPiece = NewPiece(PieceT)
+	gLow.HoldPiece = NewPiece(PieceJ)
+	gLow.NextQueue = []TetrominoType{PieceL, PieceO, PieceS}
+	if IsCleanupMode(gLow) {
+		t.Fatalf("expected 8-row clean board at level 1 NOT to be in cleanup mode")
+	}
 
+	if MaxCleanupThresholdForLevel(1) != 14 {
+		t.Fatalf("expected level 1 threshold 14, got %d", MaxCleanupThresholdForLevel(1))
+	}
+	if MaxCleanupThresholdForLevel(HighSpeedModeLevel) != HighSpeedCleanupThreshold {
+		t.Fatalf("expected level %d threshold %d (40%%), got %d", HighSpeedModeLevel, HighSpeedCleanupThreshold, MaxCleanupThresholdForLevel(HighSpeedModeLevel))
+	}
+	if MaxCleanupThresholdForLevel(105) != HighSpeedCleanupThreshold {
+		t.Fatalf("expected level 105 threshold %d (40%%), got %d", HighSpeedCleanupThreshold, MaxCleanupThresholdForLevel(105))
+	}
 
+	model, err := LoadMoveModel("../../models/move-risk.json")
+	if err != nil {
+		t.Fatalf("failed to load move-risk model: %v", err)
+	}
+
+	for _, mode := range []string{"v2", "beam", "hybrid"} {
+		g := NewGame()
+		g.Board = build8RowBoard()
+		g.Level = 105
+		g.CurrentPiece = NewPiece(PieceT)
+		g.HoldPiece = NewPiece(PieceJ)
+		g.NextQueue = []TetrominoType{PieceL, PieceO, PieceS, PieceZ, PieceT, PieceJ, PieceL, PieceO, PieceS, PieceZ}
+		switch mode {
+		case "beam":
+			g.ConfigureLookahead(10, 4)
+		case "hybrid":
+			g.UseLearned = true
+			g.LearnedModel = model
+		}
+		if !IsCleanupMode(g) {
+			t.Fatalf("mode %s: expected 8-row (40%%) stack at level 105 to trigger cleanup mode", mode)
+		}
+		if CleanupThresholdPercent(g) != 40 {
+			t.Fatalf("mode %s: expected CleanupThresholdPercent=40 at level 105, got %d", mode, CleanupThresholdPercent(g))
+		}
+		move := FindBestMove(g)
+		if move == nil {
+			t.Fatalf("mode %s: expected valid move at level 105", mode)
+		}
+		if !move.CleanupMode {
+			t.Fatalf("mode %s: expected move.CleanupMode=true at 40%% stack height on level 105", mode)
+		}
+	}
+}
+
+func TestStepAILeftCorridorResilientToGravityJitter(t *testing.T) {
+	g := NewGame()
+	g.Level = 110
+	g.AutoPlay = true
+	g.CurrentPiece = NewPiece(PieceO) // spawns at X=4, Y=0
+
+	// Plan a multi-step move all the way to the left corridor (X=0, Y=18)
+	g.CurrentAIMove = &AIMove{
+		TargetRotation: 0,
+		TargetX:        0,
+		TargetY:        18,
+		HasTargetY:     true,
+		Actions:        []AIAction{AILeft, AILeft, AILeft, AILeft, AIHardDrop},
+		Expected: []Piece{
+			{Type: PieceO, Rotation: 0, X: 4, Y: 0},
+			{Type: PieceO, Rotation: 0, X: 3, Y: 0},
+			{Type: PieceO, Rotation: 0, X: 2, Y: 1},
+			{Type: PieceO, Rotation: 0, X: 1, Y: 1},
+			{Type: PieceO, Rotation: 0, X: 0, Y: 2},
+		},
+	}
+
+	// Simulate UI tick jitter where gravity ticked 1 row earlier than Expected[0].Y
+	g.CurrentPiece.Y = 1
+
+	for step := 0; step < 4; step++ {
+		if !g.StepAI() {
+			t.Fatalf("step %d: expected StepAI to succeed", step)
+		}
+	}
+	if g.AIReplans != 0 {
+		t.Fatalf("expected 0 AIReplans under 1-row gravity jitter on left-corridor path, got %d", g.AIReplans)
+	}
+	// PieceO should have reached X=0 and auto-committed HardDrop at the bottom-left corner
+	if !g.Board.Cells[19][0].Filled || !g.Board.Cells[19][1].Filled {
+		t.Fatalf("expected PieceO to lock cleanly in left corridor (cols 0..1), board bottom-left not filled")
+	}
+}

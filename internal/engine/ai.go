@@ -29,6 +29,62 @@ type AIMove struct {
 // CleanUpHeightThreshold defines the traditional 65% baseline of the 20-row board (13 rows).
 const CleanUpHeightThreshold = 13
 
+// HighSpeedCleanupThreshold defines the 40% board height threshold (8 rows out of 20)
+// used when high-speed awareness is locked in so pieces have ample vertical clearance
+// to traverse to the left corridor (columns 0..2) without colliding or timing out.
+const HighSpeedCleanupThreshold = 8
+
+// HighSpeedAwarenessStartLevel is the level where the AI begins progressively
+// lowering its stacking ceiling from 65% (13-14 rows) toward 40% (8 rows).
+const HighSpeedAwarenessStartLevel = 50
+
+// HighSpeedModeLevel is the optimal level (25 levels / ~250 lines before Level 100)
+// where the 40% (8-row) threshold and simpler line-clearing play lock in, ensuring
+// the stack is already low and flat before entering Level 100+.
+const HighSpeedModeLevel = 75
+
+// IsHighSpeedLevel returns true once the level reaches HighSpeedModeLevel.
+func IsHighSpeedLevel(level int) bool {
+	return level >= HighSpeedModeLevel
+}
+
+// IsHighSpeedMode returns true when the game is at or above HighSpeedModeLevel.
+func IsHighSpeedMode(g *Game) bool {
+	return g != nil && IsHighSpeedLevel(g.Level)
+}
+
+// MaxCleanupThresholdForLevel returns the maximum stacking height before cleanup mode
+// engages for a given level:
+//   - Level < 50: up to 14 rows (65-70% of board)
+//   - Level 50..74: smooth linear ramp from 13 rows down to 8 rows
+//   - Level >= 75: 8 rows (40% of the 20-row board)
+func MaxCleanupThresholdForLevel(level int) int {
+	if level >= HighSpeedModeLevel {
+		return HighSpeedCleanupThreshold
+	}
+	if level >= HighSpeedAwarenessStartLevel {
+		span := HighSpeedModeLevel - HighSpeedAwarenessStartLevel
+		progress := level - HighSpeedAwarenessStartLevel
+		return 13 - (progress*5)/span
+	}
+	return 14
+}
+
+// CleanupThresholdPercent returns the active Tetris/cleanup height threshold as a
+// board percentage (40% in high-speed mode, 65% at normal speed, or interpolated during ramp).
+func CleanupThresholdPercent(g *Game) int {
+	if g == nil {
+		return 65
+	}
+	if IsHighSpeedMode(g) {
+		return 40
+	}
+	if g.Level >= HighSpeedAwarenessStartLevel {
+		return (MaxCleanupThresholdForLevel(g.Level) * 100) / BoardHeight
+	}
+	return 65
+}
+
 // GetMaxHeight calculates the highest stack height among all columns.
 func GetMaxHeight(b *Board) int {
 	if b == nil {
@@ -104,47 +160,27 @@ func HasLinePieceComing(g *Game) bool {
 
 // GetDynamicCleanupThreshold calculates an adaptive height threshold for cleanup mode.
 // Instead of a rigid 65% (13 rows), it adapts based on terrain health:
-// GetDynamicCleanupThreshold calculates an adaptive height threshold for cleanup mode.
-// Instead of a rigid 65% (13 rows), it adapts based on terrain health:
 // - A pristine, flat board (0 holes, low bumpiness) can safely stack up to 14-15 rows waiting for Tetris.
 // - A messy board with holes, spires, or high bumpiness triggers cleanup much earlier before danger escalates.
 func GetDynamicCleanupThreshold(b *Board) int {
+	return GetDynamicCleanupThresholdForLevel(b, 1)
+}
+
+// GetDynamicCleanupThresholdForLevel calculates the adaptive cleanup threshold capped by level speed awareness.
+func GetDynamicCleanupThresholdForLevel(b *Board, level int) int {
 	if b == nil {
+		if IsHighSpeedLevel(level) {
+			return HighSpeedCleanupThreshold
+		}
 		return CleanUpHeightThreshold
 	}
-
-	threshold := 14 // Base threshold: healthy boards can safely stack higher
-
-	// Holes degrade structural safety severely. Reaction starts on the first hole.
-	holes := CountHoles(b)
-	threshold -= holes * 3
-
-	// Center spires in spawn chute reduce threshold
-	centerH := GetCenterHeight(b)
-	if centerH >= 9 {
-		threshold -= (centerH - 8)
-	}
-
-	// High surface bumpiness reduces threshold aggressively:
-	// Empirical logs showed bumpiness spiking from 8.6 to 12.4+ before top-outs
-	bump := GetBumpiness(b)
-	if bump > 8 {
-		threshold -= (bump - 7)
-	}
-
-	// Clamp between 7 (emergency defense) and 15 (maximum safe stacking)
-	if threshold < 7 {
-		threshold = 7
-	}
-	if threshold > 15 {
-		threshold = 15
-	}
-	return threshold
+	bb := b.ToBitBoard()
+	return getDynamicCleanupThresholdBitBoardWithLevel(bb, level, bb.MaxHeight(), bb.CenterHeight(), bb.CountHoles(), bb.Bumpiness8())
 }
 
 // IsCleanupMode returns true if the board requires defensive cleanup lines clearing.
 // Adaptively considers:
-// 1. Dynamic threshold (holes, bumpiness, center spawn height)
+// 1. Dynamic threshold (holes, bumpiness, center spawn height, and level-aware 40% high-speed cap)
 // 2. Critical spawn danger (center >= 14 or maxHeight >= 16)
 // 3. Early bumpiness / hole spikes triggering defense before traps form
 // 4. Distinguishes between immediate line piece (in hand/hold) vs waiting for future pieces in queue
@@ -159,11 +195,16 @@ func IsCleanupMode(g *Game) bool {
 	if g.HoldPiece != nil {
 		holdType = g.HoldPiece.Type
 	}
-	return isCleanupModeBitBoard(g.Board.ToBitBoard(), currentType, holdType, g.NextQueue)
+	return isCleanupModeBitBoardWithLevel(g.Board.ToBitBoard(), g.Level, currentType, holdType, g.NextQueue)
 }
 
 func getDynamicCleanupThresholdBitBoard(bb BitBoard, maxH, centerH, holes, bump int) int {
-	threshold := 14
+	return getDynamicCleanupThresholdBitBoardWithLevel(bb, 1, maxH, centerH, holes, bump)
+}
+
+func getDynamicCleanupThresholdBitBoardWithLevel(bb BitBoard, level, maxH, centerH, holes, bump int) int {
+	maxCap := MaxCleanupThresholdForLevel(level)
+	threshold := maxCap
 	threshold -= holes * 3
 	if centerH >= 9 {
 		threshold -= (centerH - 8)
@@ -171,34 +212,70 @@ func getDynamicCleanupThresholdBitBoard(bb BitBoard, maxH, centerH, holes, bump 
 	if bump > 8 {
 		threshold -= (bump - 7)
 	}
-	if threshold < 7 {
-		threshold = 7
+	minClamp := 7
+	if IsHighSpeedLevel(level) {
+		minClamp = 6
 	}
-	if threshold > 15 {
-		threshold = 15
+	if threshold < minClamp {
+		threshold = minClamp
+	}
+	maxClamp := 15
+	if level >= HighSpeedAwarenessStartLevel {
+		maxClamp = maxCap
+	}
+	if threshold > maxClamp {
+		threshold = maxClamp
 	}
 	return threshold
 }
 
 func isCleanupModeBitBoard(bb BitBoard, currentType, holdType TetrominoType, nextQueue []TetrominoType) bool {
+	return isCleanupModeBitBoardWithLevel(bb, 1, currentType, holdType, nextQueue)
+}
+
+func isCleanupModeBitBoardWithLevel(bb BitBoard, level int, currentType, holdType TetrominoType, nextQueue []TetrominoType) bool {
 	maxH := bb.MaxHeight()
 	centerH := bb.CenterHeight()
 	holes := bb.CountHoles()
 	bump := bb.Bumpiness8()
+	highSpeed := IsHighSpeedLevel(level)
 
 	if centerH >= 14 || maxH >= 16 {
 		return true
 	}
-	if holes >= 1 && maxH >= 8 {
-		return true
-	}
-	if bump >= 13 && maxH >= 8 {
-		return true
+	if highSpeed {
+		// At high speed (40% threshold = 8 rows), trigger cleanup earlier on holes, bumpiness, or left-corridor walls
+		if holes >= 1 && maxH >= 6 {
+			return true
+		}
+		if bump >= 10 && maxH >= 7 {
+			return true
+		}
+		colHeights := bb.ColHeights()
+		if (colHeights[1] >= HighSpeedCleanupThreshold || colHeights[2] >= HighSpeedCleanupThreshold) &&
+			(colHeights[1] > colHeights[0]+1 || colHeights[2] > colHeights[0]+2) {
+			return true
+		}
+	} else {
+		if holes >= 1 && maxH >= 8 {
+			return true
+		}
+		if bump >= 13 && maxH >= 8 {
+			return true
+		}
 	}
 
-	threshold := getDynamicCleanupThresholdBitBoard(bb, maxH, centerH, holes, bump)
+	threshold := getDynamicCleanupThresholdBitBoardWithLevel(bb, level, maxH, centerH, holes, bump)
 	if maxH >= threshold {
 		immediateI := currentType == PieceI || holdType == PieceI
+		if highSpeed {
+			// In 40% high-speed mode, only defer cleanup if an I-piece is immediately available
+			// and the board is still within 1 row of the 40% threshold with 0 holes.
+			if immediateI && maxH <= HighSpeedCleanupThreshold+1 && centerH <= HighSpeedCleanupThreshold && holes == 0 {
+				return false
+			}
+			return true
+		}
 		if immediateI && maxH < 15 && centerH <= 13 {
 			return false
 		}
@@ -235,6 +312,7 @@ func findPolicyMove(g *Game) *AIMove {
 	}
 
 	cleanupMode := IsCleanupMode(g)
+	highSpeed := g.Level >= HighSpeedAwarenessStartLevel
 	beforeHoles := CountHoles(g.Board)
 	maxH := GetMaxHeight(g.Board)
 	bump := GetBumpiness(g.Board)
@@ -248,7 +326,7 @@ func findPolicyMove(g *Game) *AIMove {
 		nextNextType = g.NextQueue[1]
 	}
 
-	bestCandidate, bestScore := rankPlacements(reachablePlacements(g, g.CurrentPiece, cleanupMode), nextType, nextNextType, cleanupMode, !g.ReserveWell)
+	bestCandidate, bestScore := rankPlacements(reachablePlacements(g, g.CurrentPiece, cleanupMode), nextType, nextNextType, cleanupMode, !g.ReserveWell, highSpeed)
 	bestRot, bestX := bestCandidate.rotation, bestCandidate.x
 	var holdCandidate candidatePlacement
 
@@ -285,18 +363,24 @@ func findPolicyMove(g *Game) *AIMove {
 		if candidateHoldType != "" {
 			holdPiece := NewPiece(candidateHoldType)
 			var scoreH float64
-			holdCandidate, scoreH = rankPlacements(reachablePlacements(g, holdPiece, cleanupMode), subsequentNext, subsequentNextNext, cleanupMode, !g.ReserveWell)
+			holdCandidate, scoreH = rankPlacements(reachablePlacements(g, holdPiece, cleanupMode), subsequentNext, subsequentNextNext, cleanupMode, !g.ReserveWell, highSpeed)
 			rotH, xH := holdCandidate.rotation, holdCandidate.x
 
-			// If current piece is I, but cannot clear 4 lines yet and board is safe (< 12 rows),
+			// If current piece is I, but cannot clear 4 lines yet and board is safe,
 			// save it in Hold for the upcoming Tetris provided the held piece doesn't create holes or ruin the stack!
 			isSZ := g.CurrentPiece.Type == PieceS || g.CurrentPiece.Type == PieceZ
 			candidateNotSZ := candidateHoldType != PieceS && candidateHoldType != PieceZ
 			terrainStrained := maxH >= 9 || bump >= 8 || beforeHoles > 0
+			if IsHighSpeedMode(g) {
+				terrainStrained = maxH >= 6 || bump >= 6 || beforeHoles > 0
+			}
 
 			isO := g.CurrentPiece.Type == PieceO
 			candidateNotO := candidateHoldType != PieceO && candidateHoldType != PieceS && candidateHoldType != PieceZ
 			oStrained := isO && candidateNotO && (bump >= 12 || maxH >= 10)
+			if IsHighSpeedMode(g) {
+				oStrained = isO && candidateNotO && (bump >= 8 || maxH >= 7)
+			}
 
 			holdBits := holdCandidate.bits
 			if !holdCandidate.hasBits && holdCandidate.board != nil {
@@ -309,9 +393,13 @@ func findPolicyMove(g *Game) *AIMove {
 			currHoles := currBits.CountHoles()
 			holdHoles := holdBits.CountHoles()
 			holdCreatesMoreHoles := holdHoles > currHoles
-			holdAvoidsHoleCreation := currHoles > beforeHoles && holdHoles < currHoles && (candidateHoldType != PieceI || cleanupMode || maxH >= 10)
+			holdAvoidsHoleCreation := currHoles > beforeHoles && holdHoles < currHoles && (candidateHoldType != PieceI || cleanupMode || maxH >= 10 || (IsHighSpeedMode(g) && maxH >= 6))
 
-			if scoreH != -math.MaxFloat64 && g.CurrentPiece.Type == PieceI && candidateHoldType != PieceI && maxH < 12 && !cleanupMode && !holdCreatesMoreHoles {
+			maxSaveIHeight := 12
+			if IsHighSpeedMode(g) {
+				maxSaveIHeight = HighSpeedCleanupThreshold
+			}
+			if scoreH != -math.MaxFloat64 && g.CurrentPiece.Type == PieceI && candidateHoldType != PieceI && maxH < maxSaveIHeight && !cleanupMode && !holdCreatesMoreHoles {
 				bestMove = &AIMove{
 					UseHold:        true,
 					TargetRotation: rotH,
@@ -640,6 +728,7 @@ func evaluatePlacement(b *Board, p *Piece, linesCleared int, cleanupMode bool, e
 }
 
 func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesCleared int, cleanupMode bool, emergency ...bool) float64 {
+	highSpeed := len(emergency) > 1 && emergency[1]
 	colHeights := bb.ColHeights()
 	maxHeight := 0
 	aggHeight := 0
@@ -672,6 +761,38 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 			linesScore = 35000.0 // Good reward for single
 		case 0:
 			linesScore = -15000.0 // Penalize placing pieces without clearing lines
+		}
+	} else if highSpeed {
+		// High-speed simpler mode (40% = 8-row Tetris threshold):
+		// Keep 4-line Tetrises as the top reward when below 40% height,
+		// but positively reward singles, doubles, and triples so the board stays
+		// low and flat and pieces can always traverse to the left corridor (cols 0..2).
+		switch linesCleared {
+		case 4:
+			linesScore = 180000.0
+		case 3:
+			if maxHeight >= 5 || centerMax >= 5 {
+				linesScore = 25000.0
+			} else {
+				linesScore = 6000.0
+			}
+		case 2:
+			if maxHeight >= 5 || centerMax >= 5 {
+				linesScore = 12000.0
+			} else {
+				linesScore = 2000.0
+			}
+		case 1:
+			if maxHeight >= 5 || centerMax >= 5 {
+				linesScore = 4000.0
+			} else {
+				linesScore = -500.0
+			}
+		}
+
+		// In 40% high-speed mode, only reward 9-0 stacking up to height 6 (leaving 2 rows of buffer below 8)
+		if linesCleared == 0 && colHeights[9] == 0 && colHeights[8] >= 3 && colHeights[8] <= 6 {
+			linesScore += 2500.0
 		}
 	} else {
 		// Normal mode: Heavy priority on 4-line TETRIS
@@ -823,11 +944,27 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 		}
 	}
 
-	// Left-Flank Canyon Suppression:
+	// Left-Flank & Left-Corridor Slope Protection:
+	// Prevent columns 1 and 2 from forming a wall above column 0 that blocks pieces
+	// spawning at x=3 from traversing left into column 0 at high speed.
+	leftSlopeWeight1 := 3000.0
+	leftSlopeWeight2 := 2200.0
+	leftSlopeWeight21 := 1800.0
+	if highSpeed {
+		leftSlopeWeight1 = 7500.0
+		leftSlopeWeight2 = 6000.0
+		leftSlopeWeight21 = 4500.0
+	}
 	if colHeights[1] > colHeights[0]+1 {
-		cliffPenalty += float64(colHeights[1]-(colHeights[0]+1)) * 3000.0
+		cliffPenalty += float64(colHeights[1]-(colHeights[0]+1)) * leftSlopeWeight1
 	} else if colHeights[0] >= colHeights[1]-1 && colHeights[0] <= colHeights[1]+1 {
 		cliffPenalty -= 1200.0
+	}
+	if colHeights[2] > colHeights[0]+2 {
+		cliffPenalty += float64(colHeights[2]-(colHeights[0]+2)) * leftSlopeWeight2
+	}
+	if colHeights[2] > colHeights[1]+1 {
+		cliffPenalty += float64(colHeights[2]-(colHeights[1]+1)) * leftSlopeWeight21
 	}
 
 	// 3b. Piece-Aware Danger Handling: O/S/Z pieces cannot flatten a single-cell notch
@@ -892,11 +1029,18 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 	}
 
 	heightWeight := 45.0
+	if highSpeed && !cleanupMode {
+		heightWeight = 85.0
+	}
 	maxHeightPenalty := 0.0
 	if cleanupMode {
 		heightWeight = 140.0
-		if maxHeight > 13 {
-			maxHeightPenalty = float64(maxHeight-13) * float64(maxHeight-13) * 250.0
+		ceilLimit := 13
+		if highSpeed {
+			ceilLimit = HighSpeedCleanupThreshold
+		}
+		if maxHeight > ceilLimit {
+			maxHeightPenalty = float64(maxHeight-ceilLimit) * float64(maxHeight-ceilLimit) * 250.0
 		}
 	}
 
@@ -928,11 +1072,14 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 	if centerMax > flankRightMax && flankRightMax < 12 {
 		spawnChutePenalty += float64(centerMax-flankRightMax) * 1500.0
 	}
-	// Right-corridor clearance: at high levels (80ms gravity), columns 4..8 reaching
-	// height >= 14 block vertical I pieces from traversing from spawn (x=3) to column 9.
-	for x := 4; x <= 8; x++ {
+	// Left & right corridor clearance: at high levels (80ms gravity), columns 1..8 reaching
+	// height >= 14 block pieces from traversing from spawn (x=3) to column 0 or column 9.
+	for x := 1; x <= 8; x++ {
 		if colHeights[x] >= 14 {
 			spawnChutePenalty += float64(colHeights[x]-13) * 16000.0
+		}
+		if highSpeed && colHeights[x] > HighSpeedCleanupThreshold {
+			spawnChutePenalty += float64(colHeights[x]-HighSpeedCleanupThreshold) * 6500.0
 		}
 	}
 
