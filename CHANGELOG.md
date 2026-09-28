@@ -1,5 +1,68 @@
 # Histórico de alterações
 
+## 28/09/2026 — Motor BitBoard, melhorias nas 3 políticas de IA e modelo de 50 atributos
+
+### Adicionado
+
+- Representação `BitBoard` (`[20]uint16`, 40 bytes na stack, zero ponteiros) em
+  `internal/engine/board.go`, com tabelas de máscaras pré-computadas por peça,
+  rotação e coluna (`piecePlacementMask`) e operações bitwise para colisão,
+  queda fantasma, limpeza de linhas, alturas, buracos, bloqueios e transições.
+- Cinco novos atributos estruturais e de lookahead no modelo de risco
+  (`models/move-risk.json`, 50 atributos no total): `next_lookahead`,
+  `hole_delta`, `top_hole_blockades`, `row_transitions` e `col_transitions`.
+- Amostragem estratificada por nível de perigo em `./learn` (estados críticos,
+  intermediários e normais) e contraste intra-decisão com candidatos topo,
+  vice-líder e pior ranqueado.
+- Proteção contra colapso de feixe em `selectBeam` (`internal/engine/beam.go`),
+  preservando ao menos uma raiz (`depth = 0`) distinta quando `width >= 4`.
+
+### Melhorado
+
+- **Política v2 (`internal/engine/ai.go`)**:
+  - Lookahead de 2 camadas (`NextQueue[0..1]`) sempre ativo desde a primeira
+    jogada (viabilizado pelo custo sub-milissegundo do `BitBoard`) e expansão de
+    `topLimit` de 5 para 7 candidatos.
+  - Resgate via `Hold` quando a melhor colocação da peça atual criaria novos
+    buracos e a peça do `Hold` evita a criação de buracos (`holdAvoidsHoleCreation`),
+    além de guarda `!holdCreatesMoreHoles` em todas as trocas de `Hold`.
+  - Paridade de alinhamento horizontal/vertical para `PieceZ` junto a `PieceS`,
+    penalidade de delta de buracos (`holeDelta * 12000`), escavação rasa
+    limitada (`shallowCover`) e proteção do corredor direito (`colunas 4..8 >= 14`)
+    para passagem da peça `I` sob gravidade rápida (`80 ms`).
+- **Política Híbrida (`internal/engine/learned.go`)**:
+  - Rollouts contrafactuais em `SimulateRiskExamples` alinhados à execução
+    `gameplay` (`StepAI` + `Tick` com gravidade real por nível).
+  - Guarda de segurança em `findLearnedMove`: nunca sobrescreve para candidatos
+    que criam mais buracos que o plano base, preserva a decisão de `Hold` da `v2`
+    e atua apenas quando o plano base apresenta risco relevante.
+
+### Corrigido
+
+- Verificação de alcance horizontal no teto (`isReachableBitBoard`) restrita a
+  `tryY ∈ {0, -1}`, removendo `tryY = -2` que permitia flutuar peças de 2 linhas
+  inteiramente acima da linha `0`.
+
+### Resultados e validação (Modo `gameplay`, limite de 2.000 jogadas, seeds `10001+`)
+
+- **Latência e alocações (`go test -bench`)**:
+  - Decisão `v2`: **1,77 ms → 0,44 ms** (**4,0× mais rápida**).
+  - Decisão `beam (depth 10, width 4)`: **22,14 ms → 3,26 ms** (**6,8× mais rápida**,
+    alocações reduzidas em **86%**, de `12,46 MB` para `1,76 MB/op`).
+- **Política `v2` (150 partidas, 284.629 jogadas)**:
+  - Sobrevivência até 2.000 jogadas subiu de **64,7% (`97/150`) → 87,3% (`131/150`)**
+    (**-64% de derrotas**), `p10` de **630 → 1.753 jogadas**, taxa de Tetris de
+    **58,01% → 70,70%** e média de buracos pós-drop de **0,14 → 0,03** (**-79%**).
+- **Política `hybrid` (120 partidas, 229.225 jogadas)**:
+  - Modelo retreinado com 6.640 rollouts de treino e 1.360 de validação em 135
+    seeds (`Validation Brier: 0,07159` contra `0,15781` do prior, **-54,6%**).
+  - Sobrevivência até 2.000 jogadas subiu de **65,8% (`79/120`) → 87,5% (`105/120`)**,
+    superando a `v2` em média de jogadas/sessão (**1.910,2** vs **1.897,5**) e
+    pior caso mínimo (**656** vs **86** jogadas), com **70,49%** de taxa de Tetris.
+- **Busca em feixe `beam (depth 10, width 4)` (80 partidas, 160.000 jogadas)**:
+  - Sobrevivência chegou a **100,0% (`80/80`, zero derrotas em 160.000 jogadas)**,
+    taxa de Tetris subiu de **71,23% → 89,46%** e média de buracos caiu para **0,00**.
+
 ## 27/09/2026 — Modelo local de risco (experimental)
 
 ### Adicionado

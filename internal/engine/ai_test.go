@@ -253,4 +253,145 @@ func TestAISimulationWithLogging(t *testing.T) {
 	}
 }
 
+func TestZPieceHorizontalAndVerticalAlignment(t *testing.T) {
+	b := NewBoard()
+	for y := 12; y < BoardHeight; y++ {
+		for x := 0; x < 9; x++ {
+			b.Cells[y][x] = Cell{Filled: true}
+		}
+	}
+	horiz := NewPiece(PieceZ)
+	horiz.Rotation = 0
+	horiz.Y = 10
+	vert := NewPiece(PieceZ)
+	vert.Rotation = 1
+	vert.Y = 10
+
+	scoreHoriz := evaluatePlacement(b, horiz, 0, false)
+	scoreVert := evaluatePlacement(b, vert, 0, false)
+	if scoreHoriz-scoreVert < 4500.0 {
+		t.Fatalf("expected horizontal Z bonus and vertical Z penalty on elevated board, got horiz=%f vert=%f", scoreHoriz, scoreVert)
+	}
+}
+
+func TestIHoldGuardDoesNotHoldIntoHoleTrap(t *testing.T) {
+	g := NewGameWithSeed(42)
+	// Create a jagged surface where O piece must create a hole anywhere it lands,
+	// while I piece can land vertically in column 0 without creating any hole.
+	heights := [10]int{0, 3, 1, 4, 1, 3, 1, 4, 2, 0}
+	for x, h := range heights {
+		for y := BoardHeight - h; y < BoardHeight; y++ {
+			g.Board.Cells[y][x] = Cell{Filled: true}
+		}
+	}
+	g.CurrentPiece = NewPiece(PieceI)
+	g.HoldPiece = NewPiece(PieceO)
+	g.NextQueue = []TetrominoType{PieceO, PieceO, PieceO}
+	g.CanHold = true
+
+	move := FindBestMove(g)
+	if move == nil {
+		t.Fatalf("expected a valid move")
+	}
+	if move.UseHold {
+		t.Fatalf("expected AI not to hold I into a hole-creating O placement")
+	}
+}
+
+func TestCleanupDiggingPenalizesBuryingTopmostHole(t *testing.T) {
+	// Board A and Board B both have a hole at (col 2, row 15) covered by row 14.
+	// Board A adds a block on col 2 (row 13, burying the topmost hole deeper).
+	// Board B adds a block on col 1 (row 13, keeping col 2 clear for digging).
+	makeBase := func() *Board {
+		b := NewBoard()
+		for y := 14; y < BoardHeight; y++ {
+			for x := 0; x < 9; x++ {
+				b.Cells[y][x] = Cell{Filled: true}
+			}
+		}
+		b.Cells[15][2] = Cell{Filled: false} // shallow hole at row 15, col 2
+		b.Cells[18][6] = Cell{Filled: false} // deeper hole at row 18, col 6
+		return b
+	}
+	buried := makeBase()
+	buried.Cells[13][2] = Cell{Filled: true}
+
+	clearForDig := makeBase()
+	clearForDig.Cells[13][1] = Cell{Filled: true}
+
+	p := NewPiece(PieceT)
+	p.Y = 13
+	scoreBuried := evaluatePlacement(buried, p, 0, true)
+	scoreClear := evaluatePlacement(clearForDig, p, 0, true)
+
+	// Burying a shallow hole in cleanup mode should be penalized (> 3000 pts difference)
+	if scoreClear-scoreBuried < 3000.0 {
+		t.Fatalf("expected digging penalty for burying shallow hole in cleanup mode, got clear=%f buried=%f (diff=%f)", scoreClear, scoreBuried, scoreClear-scoreBuried)
+	}
+}
+
+func TestIsReachableDoesNotTeleportAboveCeiling(t *testing.T) {
+	b := NewBoard()
+	// Block column 2 at row 0 and row 1 so a piece spawning at X=3, Y=0 cannot move left to X=0.
+	for y := 0; y < BoardHeight; y++ {
+		b.Cells[y][2] = Cell{Filled: true}
+	}
+	p := NewPiece(PieceT)
+	if isReachable(b, p, 0, 0) {
+		t.Fatalf("expected targetX=0 to be unreachable across full-height wall in column 2 without ceiling teleportation")
+	}
+}
+
+func TestBitBoardEquivalenceWithBoard(t *testing.T) {
+	b := NewBoard()
+	heights := [10]int{4, 5, 3, 6, 6, 4, 7, 5, 4, 0}
+	for x, h := range heights {
+		for y := BoardHeight - h; y < BoardHeight; y++ {
+			b.Cells[y][x] = Cell{Filled: true}
+		}
+	}
+	b.Cells[18][2] = Cell{Filled: false}
+	bb := b.ToBitBoard()
+
+	if bb.ColHeights() != b.ColHeights() {
+		t.Fatalf("ColHeights mismatch: got %v want %v", bb.ColHeights(), b.ColHeights())
+	}
+	if bb.CountHoles() != b.CountHoles() {
+		t.Fatalf("CountHoles mismatch: got %d want %d", bb.CountHoles(), b.CountHoles())
+	}
+
+	for _, pType := range AllPieces {
+		pIdx := pieceTypeIndex(pType)
+		for rot := 0; rot < 4; rot++ {
+			for x := -3; x < BoardWidth; x++ {
+				p := &Piece{Type: pType, Rotation: rot, X: x, Y: 0}
+				validB := b.IsValidPosition(p)
+				validBB := bb.IsValidPosition(pIdx, rot, x, 0)
+				if validB != validBB {
+					t.Fatalf("IsValidPosition mismatch for %s rot=%d x=%d: board=%v bb=%v", pType, rot, x, validB, validBB)
+				}
+				if !validB {
+					continue
+				}
+				ghostB := b.GetGhostY(p)
+				ghostBB := bb.GetGhostY(pIdx, rot, x, 0)
+				if ghostB != ghostBB {
+					t.Fatalf("GetGhostY mismatch for %s rot=%d x=%d: board=%d bb=%d", pType, rot, x, ghostB, ghostBB)
+				}
+				simB := b.Clone()
+				p.Y = ghostB
+				simB.LockPiece(p)
+				clearedB := simB.ClearLines()
+
+				simBB, clearedBB := bb.LockAndClear(pIdx, rot, x, ghostBB)
+				if clearedB != clearedBB || simB.ToBitBoard() != simBB {
+					t.Fatalf("LockAndClear mismatch for %s rot=%d x=%d: cleared=%d/%d", pType, rot, x, clearedB, clearedBB)
+				}
+			}
+		}
+	}
+}
+
+
+
 

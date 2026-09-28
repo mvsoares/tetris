@@ -33,6 +33,8 @@ func (g *Game) ConfigureLookahead(depth, width int) {
 
 type beamNode struct {
 	board   *Board
+	bits    BitBoard
+	hasBits bool
 	current TetrominoType
 	hold    TetrominoType
 	next    int
@@ -46,20 +48,64 @@ type beamKey struct {
 	next          int
 }
 
+func (n *beamNode) bitBoard() BitBoard {
+	if n.hasBits {
+		return n.bits
+	}
+	if n.board != nil {
+		return n.board.ToBitBoard()
+	}
+	return BitBoard{}
+}
+
+func sameRootMove(a, b *AIMove) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.UseHold == b.UseHold && a.TargetX == b.TargetX && a.TargetY == b.TargetY && a.TargetRotation == b.TargetRotation
+}
+
 func selectBeam(children []beamNode, width int) []beamNode {
 	// Equivalent rotations/routes must not use up the narrow beam. Color has
 	// no gameplay effect, so the state identity uses occupancy, hold and queue.
 	seen := make(map[beamKey]bool, width)
 	result := make([]beamNode, 0, width)
+	hasDistinctRoot := false
 	for _, child := range children {
-		key := beamKey{current: child.current, hold: child.hold, next: child.next}
-		for y := 0; y < BoardHeight; y++ {
-			key.rows[y] = child.board.RowMask(y)
+		key := beamKey{
+			rows:    child.bitBoard(),
+			current: child.current,
+			hold:    child.hold,
+			next:    child.next,
 		}
 		if seen[key] {
 			continue
 		}
+		if width >= 4 && len(result) == width-1 && !hasDistinctRoot && result[0].root != nil {
+			// Scan ahead for the highest-scoring distinct root move to prevent beam collapse
+			var alt *beamNode
+			var altKey beamKey
+			for i := range children {
+				c := &children[i]
+				if c.root == nil || sameRootMove(c.root, result[0].root) {
+					continue
+				}
+				k := beamKey{rows: c.bitBoard(), current: c.current, hold: c.hold, next: c.next}
+				if !seen[k] {
+					alt, altKey = c, k
+					break
+				}
+			}
+			if alt != nil {
+				seen[altKey] = true
+				result = append(result, *alt)
+				break
+			}
+		}
 		seen[key] = true
+		if len(result) > 0 && !sameRootMove(child.root, result[0].root) {
+			hasDistinctRoot = true
+		}
 		result = append(result, child)
 		if len(result) == width {
 			break
@@ -76,7 +122,12 @@ func findBeamMove(g *Game) *AIMove {
 	if width <= 0 {
 		width = 4
 	}
-	initial := beamNode{board: g.Board, current: g.CurrentPiece.Type}
+	initial := beamNode{
+		board:   g.Board,
+		bits:    g.Board.ToBitBoard(),
+		hasBits: true,
+		current: g.CurrentPiece.Type,
+	}
 	if g.HoldPiece != nil {
 		initial.hold = g.HoldPiece.Type
 	}
@@ -85,10 +136,12 @@ func findBeamMove(g *Game) *AIMove {
 	var fallback *AIMove
 	for depth := 0; depth < g.LookaheadDepth; depth++ {
 		children := make([]beamNode, 0, len(beam)*64)
+		discount := math.Pow(0.85, float64(depth))
 		for _, parent := range beam {
 			if parent.current == "" {
 				continue
 			}
+			parentBits := parent.bitBoard()
 			for option := 0; option < 2; option++ {
 				useHold := option == 1
 				pieceType, holdType, next := parent.current, parent.hold, parent.next
@@ -107,31 +160,37 @@ func findBeamMove(g *Game) *AIMove {
 						next++
 					}
 				}
-				context := &Game{Board: parent.board, CurrentPiece: NewPiece(pieceType), NextQueue: g.NextQueue[next:]}
-				if holdType != "" {
-					context.HoldPiece = NewPiece(holdType)
-				}
-				cleanup := IsCleanupMode(context)
+				cleanup := isCleanupModeBitBoard(parentBits, pieceType, holdType, g.NextQueue[next:])
 				var placements []candidatePlacement
 				if depth == 0 {
-					piece := context.CurrentPiece
+					piece := NewPiece(pieceType)
 					if !useHold {
 						piece = g.CurrentPiece
 					}
 					placements = reachablePlacements(g, piece, cleanup)
 				} else {
-					placements = getCandidatePlacements(parent.board, context.CurrentPiece, cleanup, !g.ReserveWell)
+					placements = getCandidateBitPlacements(parentBits, pieceType, cleanup, !g.ReserveWell)
 				}
 				for _, placement := range placements {
 					nodes++
-					child := beamNode{board: placement.board, hold: holdType, next: next, root: parent.root,
-						score: parent.score + math.Pow(0.85, float64(depth))*placement.score}
+					childBits := placement.bits
+					if !placement.hasBits && placement.board != nil {
+						childBits = placement.board.ToBitBoard()
+					}
+					child := beamNode{
+						bits:    childBits,
+						hasBits: true,
+						hold:    holdType,
+						next:    next,
+						root:    parent.root,
+						score:   parent.score + discount*placement.score,
+					}
 					if next < len(g.NextQueue) {
 						child.current = g.NextQueue[next]
 						child.next++
 						// Locking also spawns the next piece: reject immediate top-out,
 						// including at the search horizon.
-						if !child.board.IsValidPosition(NewPiece(child.current)) {
+						if !childBits.CanSpawn(child.current) {
 							continue
 						}
 					}
@@ -167,3 +226,4 @@ func findBeamMove(g *Game) *AIMove {
 	}
 	return fallback
 }
+

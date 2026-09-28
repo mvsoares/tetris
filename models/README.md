@@ -25,14 +25,15 @@ pesos: reinicie o programa. Caminhos relativos são resolvidos pela pasta atual.
 Alvo: `survive-v2-placement-sampled-7bag`, com horizonte de **50 colocações**, já
 incluindo a ação candidata. A simulação respeita a fila conhecida, mistura apenas
 a ordem não observada do restante da bag e usa novas bags 7-bag depois disso.
-A continuidade é a política v2 por **encaixe direto**, não a híbrida nem a UI.
-Eventos virtuais/reais da UI e atrasos de CPU não compõem esse alvo.
+A continuidade executa a política v2 com simulação temporal de `gameplay`
+(`StepAI` a cada `55 ms` + `Tick` de gravidade real do nível).
 
-São 45 atributos: alturas, centro, buracos, irregularidade, ocupação, linhas da
+São 50 atributos: alturas, centro, buracos, irregularidade, ocupação, linhas da
 candidata, nota heurística, limpeza, hold, nível, fase de gravidade, dez alturas
-de coluna e tipos da peça candidata, próxima peça e hold resultante. As simulações
-usam a fila completa; os atributos não codificam todas as peças futuras nem toda
-a geometria do tabuleiro.
+de coluna, tipos da peça candidata/próxima/hold e cinco atributos estruturais e
+de lookahead (`next_lookahead`, `hole_delta`, `top_hole_blockades`,
+`row_transitions`, `col_transitions`). As simulações usam a fila completa; os
+atributos não codificam todas as peças futuras nem toda a geometria do tabuleiro.
 
 Estimativas para várias alternativas **não somam necessariamente 100%**: cada
 uma representa sobrevivência sob uma ação diferente. `P50 sim` não é chance

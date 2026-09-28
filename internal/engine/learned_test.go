@@ -303,3 +303,80 @@ func BenchmarkHybridDecision(b *testing.B) {
 		})
 	}
 }
+
+func TestRiskFeaturesIncludeLookaheadHoleDeltaAndTransitions(t *testing.T) {
+	names := RiskFeatureNames()
+	wantSuffix := []string{"next_lookahead", "hole_delta", "top_hole_blockades", "row_transitions", "col_transitions"}
+	if len(names) < len(wantSuffix) {
+		t.Fatalf("expected at least %d features, got %d", len(wantSuffix), len(names))
+	}
+	gotSuffix := names[len(names)-len(wantSuffix):]
+	if !reflect.DeepEqual(gotSuffix, wantSuffix) {
+		t.Fatalf("expected trailing features %v, got %v", wantSuffix, gotSuffix)
+	}
+}
+
+func TestLearnedMoveNeverOverridesIntoHoleCreatingCandidate(t *testing.T) {
+	g := NewGameWithSeed(42)
+	// Create a step in column 1 so placing a piece bridging col 0..1 creates a hole in col 0.
+	g.Board.Cells[19][1] = Cell{Filled: true}
+	g.Board.Cells[18][1] = Cell{Filled: true}
+	g.CurrentPiece = NewPiece(PieceT)
+	g.CanHold = false
+
+	base := FindBestMove(g)
+	if base == nil {
+		t.Fatal("expected baseline move")
+	}
+	cs := riskCandidates(g)
+	var holeCand *riskCandidate
+	for i := range cs {
+		if cs[i].placement.bits.CountHoles() > g.Board.CountHoles() {
+			holeCand = &cs[i]
+			break
+		}
+	}
+	if holeCand == nil {
+		t.Fatal("expected at least one hole-creating candidate on stepped board")
+	}
+
+	// Construct a model that strongly favors hole_delta > 0
+	m := testRiskModel(t)
+	for i := range m.Weights {
+		m.Weights[i] = 0
+		m.Means[i] = 0
+		m.Scales[i] = 1
+		m.Min[i] = -1e6
+		m.Max[i] = 1e6
+	}
+	holeDeltaIdx := -1
+	for i, name := range RiskFeatureNames() {
+		if name == "hole_delta" {
+			holeDeltaIdx = i
+			break
+		}
+	}
+	if holeDeltaIdx < 0 {
+		t.Fatal("missing hole_delta feature")
+	}
+	m.Weights[holeDeltaIdx] = 500
+	m.Bias = math.Log(0.75 / 0.25)
+	m.ValidationBrier = 0.01
+	m.BaselineBrier = 0.10
+
+	g.UseLearned, g.LearnedModel = true, m
+	chosen := FindBestMove(g)
+	if chosen == nil {
+		t.Fatal("expected move")
+	}
+	// Verify chosen move does not create a hole
+	sim := g.Board.Clone()
+	p := NewPiece(g.CurrentPiece.Type)
+	p.Rotation, p.X, p.Y = chosen.TargetRotation, chosen.TargetX, chosen.TargetY
+	sim.LockPiece(p)
+	sim.ClearLines()
+	if sim.CountHoles() > g.Board.CountHoles() {
+		t.Fatalf("learned model overrode baseline into a hole-creating placement: %+v", chosen)
+	}
+}
+

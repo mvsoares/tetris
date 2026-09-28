@@ -58,6 +58,7 @@ func RiskFeatureNames() []string {
 			names = append(names, prefix+string(p))
 		}
 	}
+	names = append(names, "next_lookahead", "hole_delta", "top_hole_blockades", "row_transitions", "col_transitions")
 	return names
 }
 
@@ -230,17 +231,47 @@ func filledCells(b *Board) int {
 	return n
 }
 
+func (c *riskCandidate) bitBoard() BitBoard {
+	if c.placement.hasBits {
+		return c.placement.bits
+	}
+	if c.placement.board != nil {
+		return c.placement.board.ToBitBoard()
+	}
+	return BitBoard{}
+}
+
 func candidateFeatures(g *Game, c riskCandidate) []float64 {
-	b := c.placement.board
-	lines := (filledCells(g.Board) + 4 - filledCells(b)) / BoardWidth
+	beforeBits := g.Board.ToBitBoard()
+	afterBits := c.bitBoard()
+	beforeHoles := beforeBits.CountHoles()
+	afterHoles := afterBits.CountHoles()
+	beforeFilled := beforeBits.FilledCount()
+	afterFilled := afterBits.FilledCount()
+	lines := (beforeFilled + 4 - afterFilled) / BoardWidth
 	flag := func(v bool) float64 {
 		if v {
 			return 1
 		}
 		return 0
 	}
-	f := []float64{float64(g.Board.MaxHeight()) / 20, float64(g.Board.CountHoles()) / 20, float64(g.Board.Bumpiness()) / 40, float64(b.MaxHeight()) / 20, float64(b.CenterHeight()) / 20, float64(b.CountHoles()) / 20, float64(b.Bumpiness()) / 40, float64(filledCells(b)) / 200, float64(lines) / 4, c.placement.score / 100000, flag(c.cleanup), flag(c.useHold), float64(g.Level) / 25, float64(g.remainingGravity()) / float64(time.Second)}
-	for _, h := range b.ColHeights() {
+	f := []float64{
+		float64(beforeBits.MaxHeight()) / 20,
+		float64(beforeHoles) / 20,
+		float64(g.Board.Bumpiness()) / 40,
+		float64(afterBits.MaxHeight()) / 20,
+		float64(afterBits.CenterHeight()) / 20,
+		float64(afterHoles) / 20,
+		float64(c.placement.board.Bumpiness()) / 40,
+		float64(afterFilled) / 200,
+		float64(lines) / 4,
+		c.placement.score / 100000,
+		flag(c.cleanup),
+		flag(c.useHold),
+		float64(g.Level) / 25,
+		float64(g.remainingGravity()) / float64(time.Second),
+	}
+	for _, h := range afterBits.ColHeights() {
 		f = append(f, float64(h)/20)
 	}
 	next := TetrominoType("")
@@ -252,6 +283,30 @@ func candidateFeatures(g *Game, c riskCandidate) []float64 {
 			f = append(f, flag(t == p))
 		}
 	}
+
+	nextLookahead := 0.0
+	if next != "" {
+		var tailQueue []TetrominoType
+		if c.next+1 < len(g.NextQueue) {
+			tailQueue = g.NextQueue[c.next+1:]
+		}
+		nextCleanup := isCleanupModeBitBoard(afterBits, next, c.hold, tailQueue)
+		_, _, rawNext := findBestBitPlacementSimple(afterBits, next, nextCleanup, !g.ReserveWell)
+		if rawNext == -math.MaxFloat64 {
+			nextLookahead = -5.0
+		} else {
+			nextLookahead = math.Max(-5.0, math.Min(5.0, rawNext/100000.0))
+		}
+	}
+	rowTrans, colTrans := afterBits.Transitions()
+	topHoleBlockades := afterBits.TopHoleBlockades()
+	f = append(f,
+		nextLookahead,
+		float64(afterHoles-beforeHoles)/10.0,
+		float64(topHoleBlockades)/20.0,
+		float64(rowTrans)/100.0,
+		float64(colTrans)/100.0,
+	)
 	return f
 }
 
@@ -285,9 +340,11 @@ func findLearnedMove(g *Game) *AIMove {
 	cs := riskCandidates(g)
 	sort.SliceStable(cs, func(i, j int) bool { return cs[i].placement.score > cs[j].placement.score })
 	var baseline float64
+	baselineHoles := g.Board.CountHoles()
 	found := false
 	for _, c := range cs {
 		if matchesCandidate(move, c) {
+			baselineHoles = c.bitBoard().CountHoles()
 			p, ok := g.LearnedModel.Predict(candidateFeatures(g, c))
 			if ok {
 				baseline = p
@@ -302,11 +359,20 @@ func findLearnedMove(g *Game) *AIMove {
 		return move
 	}
 	move.LearnedFallback = "small_probability_margin"
+	if baseline >= 0.88 || (baseline >= 0.80 && move.Score > -80000) {
+		return move
+	}
 	best := baseline
 	var chosen *AIMove
 	for i, c := range cs {
 		if i >= 6 {
 			break
+		}
+		if c.bitBoard().CountHoles() > baselineHoles {
+			continue
+		}
+		if c.useHold != move.UseHold {
+			continue
 		}
 		p, ok := g.LearnedModel.Predict(candidateFeatures(g, c))
 		if ok && p >= 0.90 && p > baseline+0.05 && p > best {

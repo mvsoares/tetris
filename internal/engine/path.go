@@ -61,6 +61,8 @@ func reachablePlacements(g *Game, start *Piece, cleanup bool) []candidatePlaceme
 	if !b.IsValidPosition(start) {
 		return nil
 	}
+	beforeBits := b.ToBitBoard()
+	pIdx := pieceTypeIndex(start.Type)
 	nodes := make([]pathNode, 1, 1024)
 	nodes[0] = pathNode{piece: *start, parent: -1}
 	visited := make(map[[3]int]bool, 1024)
@@ -80,14 +82,17 @@ func reachablePlacements(g *Game, start *Piece, cleanup bool) []candidatePlaceme
 		after := b.Clone()
 		after.LockPiece(&p)
 		cleared := after.ClearLines()
+		afterBits, _ := beforeBits.LockAndClear(pIdx, p.Rotation, p.X, p.Y)
 		candidates = append(candidates, candidatePlacement{
 			rotation: p.Rotation, x: p.X, y: p.Y, board: after,
-			score:   evaluatePlacementWithSupport(b, after, &p, cleared, cleanup, !g.ReserveWell),
+			bits:    afterBits,
+			hasBits: true,
+			score:   evaluateBitBoardWithSupport(beforeBits, afterBits, p.Type, p.Rotation, p.X, p.Y, cleared, cleanup, !g.ReserveWell),
 			actions: actions, expected: expected,
 		})
 	}
 	period, firstGravity := g.TickInterval(), g.remainingGravity()
-	allowDown := b.CountHoles() > 0
+	allowDown := beforeBits.CountHoles() > 0
 	for index := 0; index < len(nodes); index++ {
 		node := nodes[index]
 		p := node.piece

@@ -103,6 +103,12 @@ func SimulateRiskExamples(ctx context.Context, decisions []*logger.DecisionLog, 
 				if len(cs) > 0 && !contains(cs[0]) {
 					chosen = append(chosen, cs[0])
 				}
+				if len(cs) > 1 && len(chosen) < cfg.Candidates && !contains(cs[1]) {
+					chosen = append(chosen, cs[1])
+				}
+				if len(cs) > 2 && len(chosen) < cfg.Candidates && !contains(cs[len(cs)-1]) {
+					chosen = append(chosen, cs[len(cs)-1])
+				}
 				permutation := rand.New(rand.NewSource(cfg.Seed + int64(i)*7919)).Perm(len(cs))
 				for _, j := range permutation {
 					if len(chosen) >= cfg.Candidates {
@@ -138,15 +144,21 @@ func SimulateRiskExamples(ctx context.Context, decisions []*logger.DecisionLog, 
 						}
 						r.CurrentAIMove = candidateMove(c)
 						r.hardDrop(NewPiece(r.CurrentPiece.Type).Y)
-						// The first route's phase is observed; later phases are explicitly
-						// modeled by direct-placement continuation with full gravity period.
-						r.aiGravityKnown = false
-						for move := 1; move < cfg.Horizon && r.State == StatePlaying; move++ {
+						r.CurrentAIMove = nil
+						nextAI, nextGravity := AIActionInterval, r.TickInterval()
+						for r.MoveCount < cfg.Horizon && r.State == StatePlaying {
 							if ctx.Err() != nil {
 								results[i].err = ctx.Err()
 								break
 							}
-							r.StepAIImmediate()
+							if nextAI <= nextGravity {
+								r.SetAIGravityRemaining(nextGravity - nextAI)
+								r.StepAI()
+								nextAI += AIActionInterval
+							} else {
+								r.Tick()
+								nextGravity += r.TickInterval()
+							}
 						}
 						if r.State == StatePlaying {
 							example.Survived++
@@ -257,7 +269,7 @@ func FitMoveModel(examples []RiskExample, cfg RiskTrainingConfig) (*MoveModel, e
 		step := 0.10 / math.Sqrt(1+float64(epoch)/100)
 		m.Bias -= step * biasGradient / float64(total)
 		for j := range m.Weights {
-			m.Weights[j] -= step * (gradient[j]/float64(total) + 0.002*m.Weights[j])
+			m.Weights[j] -= step * (gradient[j]/float64(total) + 0.015*m.Weights[j])
 		}
 	}
 	validTrials := 0

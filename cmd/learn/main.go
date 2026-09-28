@@ -45,10 +45,15 @@ func run(path, out string, limit int, cfg engine.RiskTrainingConfig) error {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 65536), 2<<20)
 	rng := rand.New(rand.NewSource(cfg.Seed))
-	var sample []*logger.DecisionLog
-	seen, line := 0, 0
+	var highSample, medSample, normalSample []*logger.DecisionLog
+	var highSessions, medSessions, normalSessions []string
+	highCap := (limit * 5) / 10
+	medCap := (limit * 3) / 10
+	if highCap < 1 {
+		highCap = 1
+	}
+	seen, seenHigh, seenMed, seenNormal, line := 0, 0, 0, 0, 0
 	sessions := map[string]bool{}
-	sampleSessions := []string{}
 	for scanner.Scan() {
 		line++
 		var header struct {
@@ -74,27 +79,56 @@ func run(path, out string, limit int, cfg engine.RiskTrainingConfig) error {
 			continue
 		}
 		seen++
-		if len(sample) < limit {
-			sample = append(sample, move.Decision)
-			sampleSessions = append(sampleSessions, move.SessionID)
+		isHigh := move.MaxHeightBefore >= 14 || move.HolesBefore >= 3
+		isMed := !isHigh && (move.MaxHeightBefore >= 12 || move.HolesBefore >= 2)
+		if isHigh && highCap > 0 {
+			seenHigh++
+			if len(highSample) < highCap {
+				highSample = append(highSample, move.Decision)
+				highSessions = append(highSessions, move.SessionID)
+			} else if i := rng.Intn(seenHigh); i < highCap {
+				highSample[i] = move.Decision
+				highSessions[i] = move.SessionID
+			}
+		} else if isMed && medCap > 0 {
+			seenMed++
+			if len(medSample) < medCap {
+				medSample = append(medSample, move.Decision)
+				medSessions = append(medSessions, move.SessionID)
+			} else if i := rng.Intn(seenMed); i < medCap {
+				medSample[i] = move.Decision
+				medSessions[i] = move.SessionID
+			}
 		} else {
-			i := rng.Intn(seen)
-			if i < limit {
-				sample[i] = move.Decision
-				sampleSessions[i] = move.SessionID
+			seenNormal++
+			if len(normalSample) < limit {
+				normalSample = append(normalSample, move.Decision)
+				normalSessions = append(normalSessions, move.SessionID)
+			} else if i := rng.Intn(seenNormal); i < limit {
+				normalSample[i] = move.Decision
+				normalSessions[i] = move.SessionID
 			}
 		}
 	}
 	if err = scanner.Err(); err != nil {
 		return err
 	}
-	complete := sample[:0]
-	for i, d := range sample {
-		if sessions[sampleSessions[i]] {
-			complete = append(complete, d)
+	var sample []*logger.DecisionLog
+	for i, d := range highSample {
+		if sessions[highSessions[i]] {
+			sample = append(sample, d)
 		}
 	}
-	sample = complete
+	for i, d := range medSample {
+		if sessions[medSessions[i]] && len(sample) < limit {
+			sample = append(sample, d)
+		}
+	}
+	for i, d := range normalSample {
+		if sessions[normalSessions[i]] && len(sample) < limit {
+			sample = append(sample, d)
+		}
+	}
 	fmt.Printf("Decisões válidas: %d; amostradas de sessões completas: %d\n", seen, len(sample))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
