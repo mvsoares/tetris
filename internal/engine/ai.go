@@ -55,8 +55,10 @@ func IsHighSpeedMode(g *Game) bool {
 
 // MaxCleanupThresholdForLevel returns the maximum stacking height before cleanup mode
 // engages for a given level:
-//   - Level < 50: up to 14 rows (65-70% of board)
-//   - Level 50..74: smooth linear ramp from 13 rows down to 8 rows
+//   - Level < 10: up to 14 rows (65-70% of board)
+//   - Level 10..12: 13 rows as gravity accelerates toward 80ms
+//   - Level 13..49: 12 rows (at 80ms max gravity, vertical I-pieces need >= 5 rows of top clearance to enter col 9)
+//   - Level 50..74: smooth linear ramp from 12 rows down to 8 rows
 //   - Level >= 75: 8 rows (40% of the 20-row board)
 func MaxCleanupThresholdForLevel(level int) int {
 	if level >= HighSpeedModeLevel {
@@ -65,7 +67,13 @@ func MaxCleanupThresholdForLevel(level int) int {
 	if level >= HighSpeedAwarenessStartLevel {
 		span := HighSpeedModeLevel - HighSpeedAwarenessStartLevel
 		progress := level - HighSpeedAwarenessStartLevel
-		return 13 - (progress*5)/span
+		return 12 - (progress*4)/span
+	}
+	if level >= 13 {
+		return 12
+	}
+	if level >= 10 {
+		return 13
 	}
 	return 14
 }
@@ -220,7 +228,7 @@ func getDynamicCleanupThresholdBitBoardWithLevel(bb BitBoard, level, maxH, cente
 		threshold = minClamp
 	}
 	maxClamp := 15
-	if level >= HighSpeedAwarenessStartLevel {
+	if level >= 10 {
 		maxClamp = maxCap
 	}
 	if threshold > maxClamp {
@@ -239,10 +247,23 @@ func isCleanupModeBitBoardWithLevel(bb BitBoard, level int, currentType, holdTyp
 	holes := bb.CountHoles()
 	bump := bb.Bumpiness8()
 	highSpeed := IsHighSpeedLevel(level)
+	colHeights := bb.ColHeights()
 
 	if centerH >= 14 || maxH >= 16 {
 		return true
 	}
+
+	minH08 := colHeights[0]
+	rightCorridorMax := colHeights[5]
+	for x := 1; x <= 8; x++ {
+		if colHeights[x] < minH08 {
+			minH08 = colHeights[x]
+		}
+		if x >= 5 && colHeights[x] > rightCorridorMax {
+			rightCorridorMax = colHeights[x]
+		}
+	}
+
 	if highSpeed {
 		// At high speed (40% threshold = 8 rows), trigger cleanup earlier on holes, bumpiness, or left-corridor walls
 		if holes >= 1 && maxH >= 6 {
@@ -251,7 +272,6 @@ func isCleanupModeBitBoardWithLevel(bb BitBoard, level int, currentType, holdTyp
 		if bump >= 10 && maxH >= 7 {
 			return true
 		}
-		colHeights := bb.ColHeights()
 		if (colHeights[1] >= HighSpeedCleanupThreshold || colHeights[2] >= HighSpeedCleanupThreshold) &&
 			(colHeights[1] > colHeights[0]+1 || colHeights[2] > colHeights[0]+2) {
 			return true
@@ -260,7 +280,17 @@ func isCleanupModeBitBoardWithLevel(bb BitBoard, level int, currentType, holdTyp
 		if holes >= 1 && maxH >= 8 {
 			return true
 		}
-		if bump >= 13 && maxH >= 8 {
+		if bump >= 12 && maxH >= 8 {
+			return true
+		}
+		// Double-well deadlock prevention: if col 0 (or any col 0..8) has a deep canyon while stack is elevated,
+		// trigger cleanup before the surrounding walls grow too tall to clear.
+		if maxH >= 11 && maxH-minH08 >= 5 && colHeights[9] == 0 {
+			return true
+		}
+		// At Level >= 13 (80ms gravity), once cols 5..8 reach height 14+, vertical I-pieces can no longer
+		// cross into column 9. Trigger cleanup at height 13 if a Tetris cannot be immediately scored.
+		if level >= 13 && rightCorridorMax >= 13 && (minH08 < 4 || holes > 0) {
 			return true
 		}
 	}
@@ -268,19 +298,26 @@ func isCleanupModeBitBoardWithLevel(bb BitBoard, level int, currentType, holdTyp
 	threshold := getDynamicCleanupThresholdBitBoardWithLevel(bb, level, maxH, centerH, holes, bump)
 	if maxH >= threshold {
 		immediateI := currentType == PieceI || holdType == PieceI
+		tetrisReady := holes == 0 && minH08 >= 3 && colHeights[9] == 0
 		if highSpeed {
 			// In 40% high-speed mode, only defer cleanup if an I-piece is immediately available
 			// and the board is still within 1 row of the 40% threshold with 0 holes.
-			if immediateI && maxH <= HighSpeedCleanupThreshold+1 && centerH <= HighSpeedCleanupThreshold && holes == 0 {
+			if immediateI && tetrisReady && maxH <= HighSpeedCleanupThreshold+1 && centerH <= HighSpeedCleanupThreshold {
 				return false
 			}
 			return true
 		}
-		if immediateI && maxH < 15 && centerH <= 13 {
+		if level >= 13 {
+			if immediateI && tetrisReady && maxH <= 13 && centerH <= 12 && rightCorridorMax <= 12 {
+				return false
+			}
+			return true
+		}
+		if immediateI && tetrisReady && maxH < 15 && centerH <= 13 {
 			return false
 		}
 		comingI := immediateI || (len(nextQueue) > 0 && nextQueue[0] == PieceI) || (len(nextQueue) > 1 && nextQueue[1] == PieceI)
-		if comingI && maxH < 12 && centerH <= 10 && holes == 0 && bump < 10 {
+		if comingI && tetrisReady && maxH < 12 && centerH <= 10 && bump < 10 {
 			return false
 		}
 		return true
@@ -382,6 +419,15 @@ func findPolicyMove(g *Game) *AIMove {
 				oStrained = isO && candidateNotO && (bump >= 8 || maxH >= 7)
 			}
 
+			isLJ := g.CurrentPiece.Type == PieceL || g.CurrentPiece.Type == PieceJ
+			ljStrained := isLJ && candidateNotO && candidateHoldType != PieceI && (bump >= 12 || maxH >= 10)
+			if IsHighSpeedMode(g) {
+				ljStrained = isLJ && candidateNotO && candidateHoldType != PieceI && (bump >= 8 || maxH >= 7)
+			}
+
+			beforeBits := g.Board.ToBitBoard()
+			beforeInnerWell := maxInnerWell08(beforeBits)
+
 			holdBits := holdCandidate.bits
 			if !holdCandidate.hasBits && holdCandidate.board != nil {
 				holdBits = holdCandidate.board.ToBitBoard()
@@ -392,14 +438,18 @@ func findPolicyMove(g *Game) *AIMove {
 			}
 			currHoles := currBits.CountHoles()
 			holdHoles := holdBits.CountHoles()
+			currInnerWell := maxInnerWell08(currBits)
+			holdInnerWell := maxInnerWell08(holdBits)
+
 			holdCreatesMoreHoles := holdHoles > currHoles
-			holdAvoidsHoleCreation := currHoles > beforeHoles && holdHoles < currHoles && (candidateHoldType != PieceI || cleanupMode || maxH >= 10 || (IsHighSpeedMode(g) && maxH >= 6))
+			holdAvoidsHoleCreation := currHoles > beforeHoles && holdHoles < currHoles && (candidateHoldType != PieceI || cleanupMode || maxH >= 7 || beforeInnerWell >= 3 || (IsHighSpeedMode(g) && maxH >= 6))
 
 			maxSaveIHeight := 12
 			if IsHighSpeedMode(g) {
 				maxSaveIHeight = HighSpeedCleanupThreshold
 			}
-			if scoreH != -math.MaxFloat64 && g.CurrentPiece.Type == PieceI && candidateHoldType != PieceI && maxH < maxSaveIHeight && !cleanupMode && !holdCreatesMoreHoles {
+			currPlugsDeepCanyon := g.CurrentPiece.Type == PieceI && beforeInnerWell >= 4 && currInnerWell < beforeInnerWell && currHoles == beforeHoles && holdInnerWell > currInnerWell
+			if scoreH != -math.MaxFloat64 && g.CurrentPiece.Type == PieceI && candidateHoldType != PieceI && maxH < maxSaveIHeight && !cleanupMode && !holdCreatesMoreHoles && !currPlugsDeepCanyon {
 				bestMove = &AIMove{
 					UseHold:        true,
 					TargetRotation: rotH,
@@ -432,6 +482,15 @@ func findPolicyMove(g *Game) *AIMove {
 					TargetRotation: rotH,
 					TargetX:        xH,
 					Score:          scoreH + 10000.0,
+					CleanupMode:    cleanupMode,
+				}
+			} else if ljStrained && !holdCreatesMoreHoles && scoreH > bestScore-800.0 {
+				// L & J pieces create overhangs on bumpy surfaces; swap for a flatter piece when strained.
+				bestMove = &AIMove{
+					UseHold:        true,
+					TargetRotation: rotH,
+					TargetX:        xH,
+					Score:          scoreH + 8000.0,
 					CleanupMode:    cleanupMode,
 				}
 			} else if cleanupMode && !holdCreatesMoreHoles && scoreH > bestScore {
@@ -600,15 +659,26 @@ func isReachableBitBoard(bb BitBoard, pIdx int, pType TetrominoType, targetRot, 
 		step = -1
 	}
 
+	highStack := bb.MaxHeight() >= 14
+
 	// Try traversal at y=0 and y=-1 (1-row SRS wall kick clearance), but never y=-2
 	// which would float 2-row pieces completely above row 0.
+	// When stack height >= 14, also account for gravity drop during multi-step horizontal traversal.
 	for _, tryY := range [2]int{0, -1} {
 		canTraverse := true
+		dist := 0
 		for currX := spawnX; currX != targetX+step; currX += step {
-			if !bb.IsValidPosition(pIdx, targetRot, currX, tryY) {
-				canTraverse = false
-				break
+			checkY := tryY
+			if highStack && dist >= 3 {
+				checkY = tryY + (dist-1)/2
 			}
+			if !bb.IsValidPosition(pIdx, targetRot, currX, checkY) {
+				if !highStack || checkY == tryY || !bb.IsValidPosition(pIdx, targetRot, currX, checkY-1) {
+					canTraverse = false
+					break
+				}
+			}
+			dist++
 		}
 		if canTraverse {
 			return true
@@ -882,7 +952,9 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 		if isVerticalIInCol9 && linesCleared == 0 {
 			wellPenalties += 80000.0
 		}
-		if linesCleared == 0 && colHeights[9] > 0 {
+		// Only penalize non-clearing blocks in Col 9 if Col 9 is already at or above Col 8;
+		// when Col 9 < Col 8 and unchoked, filling Col 9 helps unlock multi-step cleanup line clears.
+		if linesCleared == 0 && colHeights[9] > colHeights[8] {
 			for y := BoardHeight - colHeights[9]; y < BoardHeight; y++ {
 				if (bb[y] & 1) != 0 {
 					wellPenalties += 800.0
@@ -944,19 +1016,37 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 		}
 	}
 
+	// Right-channel anti-spire protection in cleanup mode (where wellPenalties is scaled by 0.08):
+	// Prevent Column 7 (or Column 8) from forming a spire that blocks pieces from reaching Column 9.
+	if cleanupMode {
+		if colHeights[7] > colHeights[6]+1 {
+			cliffPenalty += float64(colHeights[7]-(colHeights[6]+1)) * 4200.0
+		}
+		if colHeights[7] > colHeights[8]+1 {
+			cliffPenalty += float64(colHeights[7]-(colHeights[8]+1)) * 4200.0
+		}
+		if colHeights[8] > colHeights[7]+2 {
+			cliffPenalty += float64(colHeights[8]-(colHeights[7]+2)) * 6000.0
+		}
+	}
+
 	// Left-Flank & Left-Corridor Slope Protection:
 	// Prevent columns 1 and 2 from forming a wall above column 0 that blocks pieces
-	// spawning at x=3 from traversing left into column 0 at high speed.
-	leftSlopeWeight1 := 3000.0
-	leftSlopeWeight2 := 2200.0
-	leftSlopeWeight21 := 1800.0
+	// spawning at x=3 from traversing left into column 0 at high speed, or creating a Double-Well Deadlock.
+	leftSlopeWeight1 := 3200.0
+	leftSlopeWeight2 := 2400.0
+	leftSlopeWeight21 := 1900.0
 	if highSpeed {
 		leftSlopeWeight1 = 7500.0
 		leftSlopeWeight2 = 6000.0
 		leftSlopeWeight21 = 4500.0
 	}
 	if colHeights[1] > colHeights[0]+1 {
-		cliffPenalty += float64(colHeights[1]-(colHeights[0]+1)) * leftSlopeWeight1
+		diff01 := colHeights[1] - colHeights[0]
+		cliffPenalty += float64(diff01-1) * leftSlopeWeight1
+		if diff01 >= 3 {
+			cliffPenalty += float64((diff01-2)*(diff01-2)) * 1800.0
+		}
 	} else if colHeights[0] >= colHeights[1]-1 && colHeights[0] <= colHeights[1]+1 {
 		cliffPenalty -= 1200.0
 	}
@@ -967,12 +1057,14 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 		cliffPenalty += float64(colHeights[2]-(colHeights[1]+1)) * leftSlopeWeight21
 	}
 
-	// 3b. Piece-Aware Danger Handling: O/S/Z pieces cannot flatten a single-cell notch
+	// 3b. Piece-Aware Danger Handling: O/S/Z/L/J pieces on uneven or elevated terrain
 	pieceRiskPenalty := 0.0
 	if holes > 0 && maxHeight >= 10 {
 		switch pType {
 		case PieceO, PieceS, PieceZ:
 			pieceRiskPenalty += float64(holes) * float64(maxHeight-9) * 4500.0
+		case PieceL, PieceJ:
+			pieceRiskPenalty += float64(holes) * float64(maxHeight-9) * 2500.0
 		}
 	}
 
@@ -990,8 +1082,13 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 		}
 	}
 
-	// 5. Deep valleys in building zone (columns 0..8)
+	// 5. Deep valleys in building zone (columns 0..8) & Double-Well Deadlock Prevention
 	innerWells := 0
+	innerWellQuadPenalty := 0.0
+	doubleWellFactor := 750.0
+	if colHeights[9] <= 2 {
+		doubleWellFactor = 1150.0
+	}
 	for x := 0; x < 9; x++ {
 		leftH := 20
 		if x > 0 {
@@ -1005,8 +1102,10 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 		if rightH < minAdjacent {
 			minAdjacent = rightH
 		}
-		if minAdjacent-colHeights[x] >= 3 {
-			innerWells += (minAdjacent - colHeights[x])
+		depth := minAdjacent - colHeights[x]
+		if depth >= 3 {
+			innerWells += depth
+			innerWellQuadPenalty += float64((depth-2)*(depth-2)) * doubleWellFactor
 		}
 	}
 
@@ -1072,9 +1171,13 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 	if centerMax > flankRightMax && flankRightMax < 12 {
 		spawnChutePenalty += float64(centerMax-flankRightMax) * 1500.0
 	}
-	// Left & right corridor clearance: at high levels (80ms gravity), columns 1..8 reaching
-	// height >= 14 block pieces from traversing from spawn (x=3) to column 0 or column 9.
+	// Left & right corridor clearance: at Level >= 13 (80ms gravity), columns 5..8 reaching
+	// height >= 14 block vertical I-pieces from entering column 9, and columns 1..8 reaching >= 14
+	// block traversal to the flanks.
 	for x := 1; x <= 8; x++ {
+		if x >= 5 && colHeights[x] >= 13 {
+			spawnChutePenalty += float64(colHeights[x]-12) * 8500.0
+		}
 		if colHeights[x] >= 14 {
 			spawnChutePenalty += float64(colHeights[x]-13) * 16000.0
 		}
@@ -1094,10 +1197,34 @@ func evaluateBitBoard(bb BitBoard, pType TetrominoType, pRot, pX, pY, linesClear
 		float64(aggHeight)*heightWeight -
 		maxHeightPenalty -
 		float64(innerWells)*500.0 -
+		innerWellQuadPenalty -
 		pieceRiskPenalty +
 		landingBonus
 
 	return score
+}
+
+func maxInnerWell08(bb BitBoard) int {
+	colHeights := bb.ColHeights()
+	maxDepth := 0
+	for x := 0; x < 9; x++ {
+		leftH := 20
+		if x > 0 {
+			leftH = colHeights[x-1]
+		}
+		rightH := 20
+		if x < 8 {
+			rightH = colHeights[x+1]
+		}
+		minAdj := leftH
+		if rightH < minAdj {
+			minAdj = rightH
+		}
+		if depth := minAdj - colHeights[x]; depth > maxDepth {
+			maxDepth = depth
+		}
+	}
+	return maxDepth
 }
 
 // Measure the support on the input board: locking an O makes its top two
@@ -1111,8 +1238,21 @@ func evaluatePlacementWithSupport(before, after *Board, p *Piece, lines int, cle
 
 func evaluateBitBoardWithSupport(before, after BitBoard, pType TetrominoType, pRot, pX, pY, lines int, cleanup bool, emergency ...bool) float64 {
 	score := evaluateBitBoard(after, pType, pRot, pX, pY, lines, cleanup, emergency...)
-	if holeDelta := after.CountHoles() - before.CountHoles(); holeDelta > 0 {
-		score -= float64(holeDelta) * 12000.0
+	holeDelta := after.CountHoles() - before.CountHoles()
+	if holeDelta > 0 {
+		score -= float64(holeDelta) * 18000.0
+		if pType == PieceL || pType == PieceJ {
+			score -= float64(holeDelta) * 5500.0
+		}
+	} else if (pType == PieceL || pType == PieceJ) && lines == 0 && after.Bumpiness8() < before.Bumpiness8() {
+		score += 1500.0
+	}
+	if holeDelta <= 0 {
+		if beforeWell := maxInnerWell08(before); beforeWell >= 3 {
+			if afterWell := maxInnerWell08(after); afterWell < beforeWell {
+				score += float64(beforeWell-afterWell) * 4500.0
+			}
+		}
 	}
 	if pType == PieceO && pX >= 0 && pX+1 < BoardWidth {
 		heights := before.ColHeights()

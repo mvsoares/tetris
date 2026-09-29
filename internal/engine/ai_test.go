@@ -498,3 +498,50 @@ func TestStepAILeftCorridorResilientToGravityJitter(t *testing.T) {
 		t.Fatalf("expected PieceO to lock cleanly in left corridor (cols 0..1), board bottom-left not filled")
 	}
 }
+
+func TestLevel13GravityCleanupAndDoubleWellDeadlockPrevention(t *testing.T) {
+	// 1. If Col 0 is a deep canyon (height 1) while Cols 1..8 are at height 13 and Col 9 is 0,
+	// holding PieceI must NOT suppress CleanupMode (since no Tetris can be scored with Col 0 empty).
+	g := NewGame()
+	g.Level = 13
+	for y := BoardHeight - 13; y < BoardHeight; y++ {
+		for x := 1; x <= 8; x++ {
+			g.Board.Cells[y][x] = Cell{Filled: true}
+		}
+	}
+	g.Board.Cells[19][0] = Cell{Filled: true}
+	g.CurrentPiece = NewPiece(PieceT)
+	g.HoldPiece = NewPiece(PieceI)
+	if !IsCleanupMode(g) {
+		t.Fatalf("expected CleanupMode=true when Col 0 has a deep canyon even if PieceI is held")
+	}
+
+	// 2. Canyon-plugging bonus: plugging a 4-deep inner well in Col 0 with PieceI should be rewarded
+	before := g.Board.ToBitBoard()
+	afterPlug, _ := before.LockAndClear(pieceTypeIndex(PieceI), 3, -1, 15) // vertical I in col 0
+	scorePlug := evaluateBitBoardWithSupport(before, afterPlug, PieceI, 3, -1, 15, 0, false)
+	afterStack, _ := before.LockAndClear(pieceTypeIndex(PieceI), 0, 1, 6) // horizontal I on top of cols 1..4
+	scoreStack := evaluateBitBoardWithSupport(before, afterStack, PieceI, 0, 1, 6, 0, false)
+	if scorePlug <= scoreStack+20000.0 {
+		t.Fatalf("expected plugging Col 0 canyon to strongly outscore stacking higher: plug=%f stack=%f", scorePlug, scoreStack)
+	}
+
+	// 3. Cleanup mode Col 7 anti-spire: creating a spire on Col 7 in cleanup mode should be penalized
+	bSpire := NewBoard()
+	bFlat := NewBoard()
+	for x, h := range [10]int{10, 10, 10, 10, 10, 10, 10, 13, 10, 0} {
+		for y := BoardHeight - h; y < BoardHeight; y++ {
+			bSpire.Cells[y][x] = Cell{Filled: true}
+		}
+	}
+	for x, h := range [10]int{10, 10, 10, 10, 10, 10, 11, 11, 11, 0} {
+		for y := BoardHeight - h; y < BoardHeight; y++ {
+			bFlat.Cells[y][x] = Cell{Filled: true}
+		}
+	}
+	pDummy := &Piece{Type: PieceT, Rotation: 0, X: 5, Y: 9}
+	if evaluatePlacement(bFlat, pDummy, 0, true) <= evaluatePlacement(bSpire, pDummy, 0, true) {
+		t.Fatalf("expected CleanupMode to penalize Col 7 spire over flat right channel")
+	}
+}
+
