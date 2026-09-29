@@ -1,23 +1,25 @@
-# 🎮 Tetris CLI em Go
+# 🎮 Tetris CLI in Go
 
 [![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/mvsoares/tetris/releases)
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![i18n](https://img.shields.io/badge/languages-9%20Idiomas%20(PT--BR%20%7C%20EN%20%7C%20ES%20%7C%20FR%20%7C%20IT%20%7C%20DE%20%7C%20RU%20%7C%20JA%20%7C%20ZH)-orange.svg)](#-idiomas--multilingual-support)
+[![i18n](https://img.shields.io/badge/languages-9%20Languages%20(PT--BR%20%7C%20EN%20%7C%20ES%20%7C%20FR%20%7C%20IT%20%7C%20DE%20%7C%20RU%20%7C%20JA%20%7C%20ZH)-orange.svg)](#-languages--multilingual-support)
 
-Uma implementação moderna, fluida e de alto desempenho do clássico **Tetris** para terminal, desenvolvida em **Go** com a arquitetura [Bubble Tea](https://github.com/charmbracelet/bubbletea) (The Elm Architecture) e estilizada com [Lipgloss](https://github.com/charmbracelet/lipgloss).
+*Translations: [🇺🇸 English](README.md) | [🇧🇷 Português](README.pt-br.md)*
 
-Inclui **suporte completo a 9 idiomas** (Português, Inglês, Espanhol, Francês, Italiano, Alemão, Russo, Japonês e Chinês Simplificado), **Auto-Play com IA Heurística Adaptativa e Motor BitBoard**, **motor de simulação headless concorrente**, **logger assíncrono com buffer configurável** para geração de datasets JSONL e ferramentas CLI de análise profunda de partidas e derrotas.
+A modern, fluid, and high-performance terminal implementation of the classic **Tetris**, built in **Go** using the [Bubble Tea](https://github.com/charmbracelet/bubbletea) architecture (The Elm Architecture) and styled with [Lipgloss](https://github.com/charmbracelet/lipgloss).
 
-Veja o [histórico de alterações](CHANGELOG.md) e os [resultados dos benchmarks](benchmarks/README.md).
+Features **native support for 9 languages** (Portuguese, English, Spanish, French, Italian, German, Russian, Japanese, and Simplified Chinese), **Auto-Play powered by an Adaptive Heuristic AI & BitBoard Engine**, **a concurrent headless simulation engine**, an **asynchronous logger with a 100 MB buffer** for JSONL dataset generation, and CLI tools for deep game and loss analysis.
+
+See the [changelog](CHANGELOG.md) and [benchmark results](benchmarks/README.md).
 
 ---
 
-## 🌐 Idiomas / Multilingual Support
+## 🌐 Languages / Multilingual Support
 
-O Tetris conta com tradução nativa completa para **9 idiomas**:
-- 🇧🇷 **Português do Brasil** (`pt-br`, `pt`) — *padrão*
-- 🇺🇸 **English** (`en`, `english`)
+Tetris includes full, native translation for **9 languages**:
+- 🇧🇷 **Português do Brasil** (`pt-br`, `pt`)
+- 🇺🇸 **English** (`en`, `english`) — *international*
 - 🇪🇸 **Español** (`es`, `spanish`)
 - 🇫🇷 **Français** (`fr`, `french`)
 - 🇮🇹 **Italiano** (`it`, `ita`, `italian`)
@@ -26,158 +28,166 @@ O Tetris conta com tradução nativa completa para **9 idiomas**:
 - 🇯🇵 **日本語** (`ja`, `japanese`)
 - 🇨🇳 **简体中文** (`zh`, `chinese`)
 
-### Como alterar o idioma:
-1. **Durante o jogo**: Pressione a tecla **`L`** a qualquer momento para abrir o menu interativo de seleção de idioma (1 a 9 ou setas).
-2. **Na linha de comando**: Inicie o jogo com a flag `--lang` ou `--idiom`:
+### How to switch languages:
+1. **During gameplay**: Press the **`L`** key at any moment to open the interactive language modal (choose using numeric keys **`1` to `9`**, or arrow keys).
+2. **From the command line**: Launch the game with the `--lang` or `--idiom` flag:
    ```bash
-   tetris --lang=ja        # 日本語 (Japonês)
-   tetris --lang=ru        # Русский (Russo)
-   tetris --lang=de        # Deutsch (Alemão)
-   tetris --lang=zh        # 简体中文 (Chinês)
-   tetris --lang=english   # English
-   tetris --lang=spanish   # Español
-   tetris --lang=french    # Français
-   tetris --lang=ita       # Italiano
+   tetris --lang=en        # English
+   tetris --lang=ja        # 日本語 (Japanese)
+   tetris --lang=ru        # Русский (Russian)
+   tetris --lang=de        # Deutsch (German)
+   tetris --lang=zh        # 简体中文 (Chinese)
+   tetris --lang=es        # Español (Spanish)
+   tetris --lang=fr        # Français (French)
+   tetris --lang=it        # Italiano (Italian)
    tetris --lang=pt-br     # Português do Brasil
    ```
 
 ---
 
-## 🌟 Principais Recursos
+## 🌟 Key Features
 
-- 🌐 **Multilíngue Global (i18n)**: 9 idiomas suportados com alternador dinâmico em tempo de execução (`L`, teclas 1..9) e flags CLI (`--lang`, `--idiom`).
-- 📦 **Empacotamento Oficial (v1.0.0)**: Pacotes prontos para **Debian/Ubuntu (`.deb`)**, **Fedora/RHEL (`.rpm`)**, **macOS (`.tar.gz` / Homebrew)** e **Windows (`.zip`)**.
-- 🎨 **Interface Rica no Terminal**: Renderização TrueColor sem cintilação (*flicker-free*) no buffer alternativo (`tea.WithAltScreen`), com proporção de blocos 1:2 (`██`) e proteção de redimensionamento (`SIGWINCH`).
-- 🕹️ **Mecânicas Modernas Oficiais**:
-  - Randomizador **7-Bag** justo (sem secas prolongadas de peças).
-  - Rotação com **Wall Kicks** (evita travamentos em paredes e bordas).
-  - **Peça Fantasma** (*Ghost Piece*) semitransparente (`░░`).
-  - **Hold Queue** com limite de 1 troca por travamento.
-  - **Contador de Tetrises** na interface (painel lateral e tela de Game Over).
-  - **Gravidade Progressiva**: A velocidade de queda aumenta a cada 10 linhas limpas.
-- 🤖 **Auto-Play Inteligente (IA com Stacking 9-0, BitBoard & Lookahead)**:
-  - **Motor BitBoard**: Execução ultrarrápida com representação bitwise de 40 bytes na stack.
-  - **Estratégia 9-0**: Constrói a pilha nas colunas 0 a 8 e mantém a coluna 9 aberta para a chegada da peça `I`.
-  - **Rotas legais com gravidade**: Planeja movimentos reais e recalcula a rota quando necessário.
-  - **Lookahead adaptativo**: A política v2 avalia a próxima peça e aprofunda a busca quando há perigo.
-  - **Lookahead experimental de 10 peças**: Busca em feixe com hold e remoção de estados duplicados, selecionável pelo menu `M`.
-  - **Modelo local de risco**: Estimativas treinadas com alternativas simuladas; terceira opção experimental no menu. A v2 permanece padrão.
-- ⚡ **Simulador Headless em Background (`./train`)**:
-  - Worker pool concorrente com até **50 partidas paralelas** usando todas as threads da CPU.
-  - Seeds reproduzíveis e modos `placement` e `gameplay`, com motivos explícitos de encerramento.
-- 💾 **Logger Assíncrono com Buffer de 100 MB**:
-  - Buffer de gravação de 100 MB via `bufio.Writer` e canal em fila de 131.072 itens.
-  - Grava JSON Lines (`.jsonl`) com matrizes `20x10`, relevo, buracos, pontuação e telemetria de planos.
-- 📊 **Ferramentas CLI Analíticas**:
-  - `./analyze`: Estatísticas agregadas, taxa de Tetris, pontuação e distribuição de linhas.
-  - `./analyze_losses`: Diagnóstico profundo da causa raiz de cada Game Over (top-outs, relevo e buracos).
+- 🌐 **Global Multilingual (i18n)**: 9 fully translated languages with runtime hot-swapping (`L`, keys 1..9) and CLI startup flags (`--lang`, `--idiom`).
+- 📦 **Official Packaging (v1.0.0)**: Production-ready packages for **Debian/Ubuntu (`.deb`)**, **Fedora/RHEL (`.rpm`)**, **macOS (`.tar.gz` / Homebrew)**, and **Windows (`.zip`)**.
+- 🎨 **Rich Terminal Interface**: TrueColor flicker-free rendering in terminal alternate buffer (`tea.WithAltScreen`), 1:2 block aspect ratio (`██`), and responsive window resize handling (`SIGWINCH`).
+- 🕹️ **Official Modern Tetris Mechanics**:
+  - Fair **7-Bag** randomizer (prevents prolonged piece droughts).
+  - Rotation with **Wall Kicks** (SRS-compliant kicks against boundaries and blocks).
+  - Translucent **Ghost Piece** projection (`░░`).
+  - **Hold Queue** with a strict 1-swap per lock limit.
+  - On-screen **Tetris Counter** (side panel and Game Over summary).
+  - **Progressive Gravity**: Fall speed increases dynamically every 10 lines cleared.
+  - **Lock Delay**: Generous placement tolerance with up to 15 move/rotation resets for human players.
+- 🤖 **Intelligent Auto-Play (9-0 Stacking, BitBoard Engine & Lookahead AI)**:
+  - **BitBoard Engine**: Stack-allocated 40-byte bitwise board representation (`[20]uint16`) accelerating calculations up to 6.8x.
+  - **9-0 Strategy**: Builds the stack across columns 0–8, reserving column 9 for Tetris line clears with the `I` piece.
+  - **Gravity-Aware Legal Pathfinding**: Plans real physical move sequences with rotation and recalculates dynamically if blocked.
+  - **Adaptive Lookahead**: Heuristic v2 evaluates incoming queue pieces and deepens search during danger states.
+  - **Experimental 10-Piece Beam Search**: Multi-ply beam search with hold evaluation and duplicate state pruning via the `M` menu.
+  - **Local Risk Model**: Trained logistic model evaluated against simulated rollouts; selectable as an experimental policy.
+- ⚡ **Concurrent Headless Simulator (`./train`)**:
+  - Worker pool supporting up to **50 concurrent parallel games** utilizing all CPU cores.
+  - Fully reproducible seeds and dual simulation modes (`placement` and `gameplay`).
+- 💾 **Asynchronous Logger with 100 MB Buffer**:
+  - Non-blocking logging pipeline backed by `bufio.Writer` and a 131,072-item buffered channel.
+  - Emits JSON Lines (`.jsonl`) with 20×10 grid snapshots, surface contour, hole count, score, and action telemetry.
+- 📊 **Analytical CLI Suite**:
+  - `./analyze`: Aggregate performance metrics, Tetris clear rate, scoring, and line distributions.
+  - `./analyze_losses`: Root-cause forensic analysis of Game Over triggers (top-out piece, column heights, holes, emergency state).
 
 ---
 
-## 🕹️ Controles do Jogo
+## 🕹️ Game Controls
 
 ```text
 ┌──────────────────────┬────────────────────────────────────────────────────────┐
-│ Tecla                │ Ação / Função                                          │
+│ Key                  │ Action / Function                                      │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ ← / A / H            │ Mover peça para a Esquerda                             │
+│ ← / A / H            │ Move piece Left                                        │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ → / D / L (no jogo)  │ Mover peça para a Direita                              │
+│ → / D / L (in-game)  │ Move piece Right                                       │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ ↓ / S / J            │ Soft Drop (queda acelerada com bônus de pontuação)     │
+│ ↓ / S / J            │ Soft Drop (faster drop with score bonus)               │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ Espaço               │ Hard Drop (queda instantânea e travamento)             │
+│ Space                │ Hard Drop (instant drop and lock)                      │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ ↑ / W / X            │ Rotacionar no sentido Horário                          │
+│ ↑ / W / X            │ Rotate Clockwise (CW)                                  │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ Z                    │ Rotacionar no sentido Anti-horário                     │
+│ Z                    │ Rotate Counter-Clockwise (CCW)                         │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ C / H                │ Guardar / Trocar peça no Hold                          │
+│ C / H                │ Hold / Swap piece in Hold Queue                        │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ B / Tab              │ Ativar / Desativar Auto-Play (IA joga automaticamente) │
+│ B / Tab              │ Toggle Auto-Play (AI plays automatically)              │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ M                    │ Abrir menu para escolher a política de IA             │
+│ M                    │ Open AI Policy selection menu                          │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ L                    │ Abrir menu de seleção de Idioma (PT-BR, EN, ES, FR, IT)│
+│ L                    │ Open Language selection menu (9 languages)             │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ 4 / I                │ Forçar chegada de 4 peças de Linha (I) consecutivas    │
+│ 4 / I                │ Force 4 consecutive Line (I) pieces (Debug/Practice)   │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ T                    │ Setup Instantâneo de 4 Linhas para Tetris              │
+│ T                    │ Instant 4-Line Tetris Setup (Debug/Practice)           │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ P                    │ Pausar / Retomar partida                               │
+│ P                    │ Pause / Resume game                                    │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ R                    │ Reiniciar jogo                                         │
+│ R                    │ Restart game                                           │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ Q / Esc / Ctrl+C     │ Sair do jogo                                           │
+│ Q / Esc / Ctrl+C     │ Quit game                                              │
 └──────────────────────┴────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📦 Instalação dos Pacotes Oficiais (v1.0.0)
+## 📦 Official Package Installation (v1.0.0)
 
-### Opção 1: Instalador Automático Universal (Linux e macOS)
-Execute no seu terminal para detectar a sua distribuição/SO e instalar automaticamente a versão mais recente:
+### Option 1: Universal One-Line Installer (Linux & macOS)
+Run this command in your terminal to automatically detect your OS, download the appropriate package, and install:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mvsoares/tetris/main/scripts/install.sh | bash
 ```
 
-### Opção 2: Debian / Ubuntu (`.deb`)
-Baixe o pacote da release para sua arquitetura (`amd64` ou `arm64`) e instale:
+### Option 2: Debian / Ubuntu (`.deb`)
+Download the `.deb` release package for your architecture (`amd64` or `arm64`) and install:
 ```bash
-# Para arquitetura x86_64 / amd64:
+# For x86_64 / amd64:
 sudo dpkg -i tetris_1.0.0_amd64.deb
 
-# Para arquitetura ARM64:
+# For ARM64:
 sudo dpkg -i tetris_1.0.0_arm64.deb
 ```
 
-### Opção 3: Fedora / Red Hat / CentOS (`.rpm`)
+### Option 3: Fedora / Red Hat / CentOS (`.rpm`)
 ```bash
-# Para arquitetura x86_64:
+# For x86_64:
 sudo rpm -Uvh tetris-1.0.0-1.x86_64.rpm
-# ou
+# or:
 sudo dnf install tetris-1.0.0-1.x86_64.rpm
 
-# Para arquitetura aarch64 (ARM64):
+# For aarch64 (ARM64):
 sudo rpm -Uvh tetris-1.0.0-1.aarch64.rpm
 ```
 
-### Opção 4: macOS (Apple Silicon ou Intel)
-Baixe o arquivo compactado da release:
+### Option 4: macOS (Apple Silicon or Intel)
+Download the `.tar.gz` archive for your CPU:
 ```bash
 # Apple Silicon (M1/M2/M3/M4):
 tar -xzf tetris_1.0.0_darwin_arm64.tar.gz
 sudo mv tetris /usr/local/bin/
 
-# Mac Intel:
+# Intel Mac:
 tar -xzf tetris_1.0.0_darwin_amd64.tar.gz
 sudo mv tetris /usr/local/bin/
 ```
-Ou instale via [Homebrew](Formula/tetris.rb):
+Or install via [Homebrew](Formula/tetris.rb):
 ```bash
 brew install mvsoares/tetris/tetris
 ```
 
+### Option 5: Windows
+Download `tetris_1.0.0_windows_amd64.zip`, extract `tetris.exe`, and run it in Windows Terminal, PowerShell, or Command Prompt.
+
 ---
 
-## 📥 Instalação e Compilação
+## 📥 Building from Source
 
-### Pré-requisitos
+### Prerequisites
 
-- **Go 1.26.6** ou superior instalado, conforme `go.mod` ([go.dev](https://go.dev/dl/)).
-- Terminal com suporte a cores ANSI / UTF-8.
-- Resolução recomendada de terminal: **64 colunas × 26 linhas** (ou maior).
+- **Go 1.26** or higher installed ([go.dev/dl](https://go.dev/dl/)).
+- Terminal with ANSI / UTF-8 TrueColor support.
+- Recommended terminal window resolution: **64 columns × 26 rows** (or larger).
 
-### 1. Clonar o repositório
+### 1. Clone the repository
 ```bash
 git clone https://github.com/mvsoares/tetris.git
 cd tetris
 ```
 
-### 2. Compilar todos os binários
+### 2. Build the binaries
+Using `make`:
 ```bash
-# Compila os utilitários do projeto
+make build
+```
+Or using the Go CLI directly:
+```bash
 go build -o tetris ./cmd/tetris
 go build -o train ./cmd/train
 go build -o analyze ./cmd/analyze
@@ -185,306 +195,223 @@ go build -o analyze_losses ./cmd/analyze_losses
 go build -o learn ./cmd/learn
 ```
 
-Ou execute diretamente com `go run`:
+Or run directly without building:
 ```bash
 go run ./cmd/tetris
 ```
 
 ---
 
-## 🚀 Como Usar
+## 🚀 Usage Guide
 
-### 1. Jogar no Terminal (Modo Interativo)
-Inicie a interface gráfica no seu terminal:
+### 1. Play in the Terminal (Interactive Mode)
+Launch the graphical terminal UI:
 ```bash
 ./tetris
 ```
-*Dica*: Pressione `M` para escolher entre a IA v2 e o lookahead de 10 peças; depois use `B` ou Tab para ativar o Auto-Play. Alterar a política reinicia a rodada. Após atualizar o código, recompile `./tetris`: executáveis locais não são versionados.
+*Tip*: Press `M` to choose between standard heuristic AI (v2), 10-piece lookahead, or hybrid risk model. Press `B` or `Tab` to toggle Auto-Play. Press `L` to switch language at any time.
 
-### 2. Simular Partidas em Background (`./train`)
-Gere centenas de milhares de jogadas em alta velocidade para datasets de aprendizado de máquina ou benchmarks de sobrevivência:
+### 2. Run Headless Simulations (`./train`)
+Generate hundreds of thousands of moves at high speed for machine learning training or survival benchmarking:
 ```bash
-# Simular 100 partidas com 15 workers simultâneos e buffer de 100 MB:
+# Simulate 100 games across 15 concurrent workers with a 100 MB write buffer:
 ./train -games 100 -workers 15 -file logs/plays.jsonl
 
-# Limpar o log existente antes de iniciar:
+# Truncate existing log before starting:
 ./train -clean -games 50 -workers 10
 
-# Modo contínuo (roda sem parar até pressionar Ctrl+C):
+# Continuous mode (runs until Ctrl+C):
 ./train -games 0 -workers 50
 
-# Benchmark reproduzível: exatamente 1000 partidas, até 1000 peças por partida:
+# Reproducible benchmark: exactly 1,000 games, up to 1,000 pieces per game:
 go run ./cmd/train -quiet -games 1000 -workers 16 -seed 1 -max-moves 1000 -file logs/benchmark-placement.jsonl
 
-# Mesmas seeds, usando movimentos reais da IA e gravidade por nível:
+# Same seeds, using actual gravity-governed AI movements:
 go run ./cmd/train -quiet -mode gameplay -games 1000 -workers 16 -seed 1 -max-moves 1000 -file logs/benchmark-gameplay.jsonl
 ```
 
-A seed da partida de índice `n` é `seed+n`, independentemente da quantidade de workers. O modo padrão `placement` avalia encaixes diretos, sem executar a sequência de movimentos. O modo `gameplay` executa `StepAI` a cada 55 ms virtuais e `Tick` no intervalo de gravidade do nível, sem esperar tempo real. Ele reproduz as regras e os intervalos nominais da interface; atrasos de renderização, processamento e ordem de mensagens no terminal podem produzir diferenças.
+The game seed for index `n` is computed as `seed + n` regardless of worker count.
+- The default `placement` mode evaluates direct drop positions without path execution.
+- The `gameplay` mode steps `StepAI` every virtual 55 ms and ticks gravity according to level speeds without real-time delays.
 
-A política `heuristic-9-0-v2` busca caminhos legais a partir da posição atual, incluindo wall kicks, rotações nos dois sentidos e gravidade entre ações. Ao detectar desvio do caminho, calcula uma nova rota; não força um hard drop de watchdog. O poço continua reservado no modo normal, mas suas penalidades são reduzidas em emergências. Para comparar com penalidades rígidas também em emergência, use `-reserve-well` (registrado como `heuristic-9-0-v2-strict-well`). A busca usa até 2.048 estados e 32 ações; conserva o primeiro caminho para cada posição/rotação, podendo omitir caminhos mais longos com outra fase de gravidade. A próxima peça ainda usa avaliação aproximada de encaixes no lookahead.
-
-`-max-moves` limita apenas peças colocadas, não linhas limpas. Partidas que atingem esse limite são sobreviventes censurados: não contam como derrotas, e sua duração não deve ser interpretada como tempo até perder.
-
-### Lookahead experimental de 10 colocações
-
-No jogo, pressione **M** para abrir o menu de IA. Escolha a política atual (v2),
-**Lookahead 10 peças** ou **IA híbrida experimental** com ↑/↓ ou 1/2/3 e confirme com Enter. Esc/M cancela.
-O jogo fica congelado enquanto o menu está aberto. Alterar a política reinicia
-a partida, preservando o recorde e o estado do Auto-Play; confirmar a opção já
-ativa não reinicia. Use B/Tab para ligar ou desligar o Auto-Play.
-
+### 3. Experimental 10-Piece Lookahead
+In-game, press **M** to open the AI menu. Select **Lookahead 10 pieces (beam 4)** using arrow keys or numbers and confirm with `Enter`.
+From the command line:
 ```bash
 go run ./cmd/tetris -lookahead 10 -beam-width 4
 go run ./cmd/train -quiet -mode gameplay -lookahead 10 -beam-width 4 -games 20 -workers 4 -seed 101 -max-moves 1000 -file logs/beam-pilot-new.jsonl
 ```
 
-`-lookahead 0` mantém a política v2 padrão. O modo experimental amplia a fila conhecida para 10 peças futuras, também exibidas como letras no painel NEXT. A profundidade conta a peça atual entre as 10 colocações; a peça extra suporta o hold vazio. A sequência gerada não muda. A busca considera hold em cada camada, conserva as melhores continuações distintas até `beam-width` e executa somente a primeira colocação planejada, recalculando após cada peça. Ela não é exaustiva: a poda pode descartar a melhor sequência global, e as colocações futuras ainda usam o modelo aproximado sem rotas completas de gravidade/SRS. `search_depth` e `search_nodes` registram a profundidade efetivamente alcançada e o número de encaixes avaliados nos movimentos com plano.
-
-Os resultados e limites estão no [teste de viabilidade](benchmarks/2026-09-26-lookahead.md). Larguras maiores custam mais CPU/memória e podem atrasar os timers da UI; o simulador usa tempo virtual e não mede esse atraso real. Por isso o modo permanece opt-in.
-
-### Modelo aprendido de probabilidades
-
-`./tetris` carrega `models/move-risk.json` uma vez na inicialização, mas não ativa
-a política híbrida automaticamente. Execute a partir da pasta do projeto, abra
-o menu **M** e escolha **3**, ou use:
-
+### 4. Learned Risk Probability Model
+`./tetris` loads `models/move-risk.json` at startup. Launch with:
 ```bash
 ./tetris -learned -model models/move-risk.json
 ./train -quiet -mode gameplay -learned -model models/move-risk.json -games 20 -workers 4 -seed 5001 -max-moves 1000 -file logs/hybrid-new.jsonl
 ```
+The status panel displays `P50 sim`: estimated survival probability over 50 simulated future placements based on 7-bag rollouts.
 
-O painel mostra `P50 sim`: estimativa de sobreviver por 50 colocações (incluindo
-a candidata), supondo continuidade pela v2 em **encaixe direto** e futuros 7-bag
-amostrados além da fila conhecida. Não é probabilidade de vitória nem garantia
-para o modo interativo. O JSON de decisão registra estimativas também para
-alternativas legais; elas não precisam somar 100%, pois são probabilidades de
-resultado, não uma distribuição de escolha.
-
-O primeiro modelo melhorou o Brier de validação (0,0215 contra 0,0317 para um
-prior constante), mas o piloto de gameplay em novas seeds teve **16/20**
-sobreviventes contra **19/20** na v2. É experimental e **não é uma melhoria de
-gameplay comprovada**. Modelo ausente, inválido, estado fora dos intervalos de
-treino ou falta de vantagem suficiente mantêm o fallback heurístico.
-
-Treino reproduzível, sempre com arquivos novos:
-
+To run offline training with simulated alternatives:
 ```bash
-# Coleta decisões com fila, hold, pose, gravidade e alternativas:
+# Collect gameplay decisions with full state transitions:
 ./train -quiet -mode gameplay -games 30 -workers 4 -seed 1001 -max-moves 1000 -buf-kb 4096 -file logs/learning-source-new.jsonl
-# Simula alternativas e publica atomicamente um modelo novo:
+
+# Simulate alternatives and atomically export an updated model:
 ./learn -file logs/learning-source-new.jsonl -out models/move-risk-new.json -decisions 120 -candidates 4 -rollouts 4 -horizon 50 -workers 4 -seed 20260927
 ```
 
-O ajuste é offline; jogar não altera os pesos nem inicia treino automaticamente.
-Logs antigos sem `decision` não bastam para esse comando. Consulte a
-[documentação do modelo](models/README.md) e o [piloto de validação](benchmarks/2026-09-27-risk.md).
-
-### 3. Analisar o Dataset de Jogadas (`./analyze`)
-Gera um relatório estatístico completo das partidas registradas:
+### 5. Analyze Gameplay Datasets (`./analyze`)
+Generate comprehensive aggregate statistics from any `.jsonl` log file:
 ```bash
 ./analyze -file logs/plays.jsonl
 ```
 
-### 4. Diagnóstico de Derrotas (`./analyze_losses`)
-Analisa a causa raiz de cada Game Over (qual peça causou o topo, perfil de altura das 10 colunas, número de buracos no momento da morte e se a IA estava em modo defensivo):
+### 6. Forensic Loss Diagnosis (`./analyze_losses`)
+Diagnose root causes of game overs (top-out piece, 10-column profile, hole counts, defense mode):
 ```bash
 ./analyze_losses -file logs/plays.jsonl
 
-# Estatísticas estruturadas, incluindo percentis e motivos de encerramento:
+# Structured JSON output with percentiles and termination reasons:
 go run ./cmd/analyze_losses -file logs/benchmark-gameplay.jsonl -json
 ```
 
-O diagnóstico considera derrota somente sessões com `end_reason` igual a `top_out` ou `no_legal_move`. Limites (`move_limit`), cancelamentos (`cancelled`), saídas (`closed`) e reinícios (`restarted`) são separados. Logs antigos ou sessões incompletas ficam como `unknown`; não é possível recuperar com segurança o motivo de encerramento desses registros. `failed_piece` registra a peça que não conseguiu nascer ou obter um encaixe válido, e não a última peça colocada. Contagens por peça descrevem associação, não provam causalidade.
-
-Cada encerramento registra seed, versão da política, modo de execução e tabuleiro final. Cada jogada registra tabuleiros e métricas antes/depois, recompensa incluindo soft/hard drop e o modo de limpeza da decisão. Linhas ocultas usadas pela busca não geram pontos extras de hard drop. `had_ai_plan`, `ai_plan_matched`, `plan_misses` e `watchdog_drops` permitem medir falhas de execução separadamente da heurística. O analisador verifica sequência de jogadas, recompensas e totais da sessão; registros JSON inválidos e erros de gravação/flush são reportados.
-
-Veja o [benchmark de 26/09/2026](benchmarks/2026-09-26.md), com 1.000 seeds comparadas nos modos de encaixe e gameplay, resultados e prioridades para melhorar o auto-play.
-
-As melhorias foram implementadas na política v2: o [reteste com as mesmas 1.000 seeds](benchmarks/2026-09-26-v2.md) elevou a sobrevivência até 1.000 peças de 41,1% para 88,6%, com zero desvios entre as 951.555 colocações que tinham plano. A participação de Tetrises caiu de 59,9% para 54,5%, enquanto a pontuação média aumentou 49,4%.
-
 ---
 
-## 🧠 Como Funciona o Algoritmo de Auto-Play (IA Heurística)
+## 🧠 How the Auto-Play AI Algorithm Works
 
-O Auto-Play combina busca limitada de rotas legais, projeção de peças futuras e uma função heurística que equilibra sobrevivência e Tetrises. A política padrão é `heuristic-9-0-v2`; o lookahead de 10 colocações é experimental. Notas heurísticas não são pontos reais do jogo nem garantias de sobrevivência.
+The Auto-Play agent combines constrained legal pathfinding, future piece projection, and an adaptive heuristic function that balances long-term survival with high-scoring Tetrises.
 
----
+### 1. Decision Pipeline Each Turn (Policy v2)
+1. **Threat Assessment**: Evaluates board hazard state, contours, and identifies legal navigation paths from the spawn position using lateral shifts, dual-direction SRS wall kicks, and inter-action gravity.
+2. **Placement Evaluation**: Simulates lock and line clearing on every valid terminal candidate, scoring height, holes, surface roughness, spawn chimney headroom, structural support, and well openness.
+3. **Queue Lookahead**: Ranks candidates against the next piece in the queue, deepening lookahead during danger states.
+4. **Hold Strategy**: Compares active candidates against Hold alternatives and selects the optimal path.
+5. **Execution**: Emits the action sequence. If an unexpected blockage or desync occurs, re-plans immediately rather than executing a blind drop.
 
-### 1. Fluxo de Decisão a Cada Turno
+### 2. 9-0 Stacking & The 4 Golden Rules of the Well
+The **9-0 stacking strategy** confines block placement to columns **0 through 8**, keeping **column 9 empty** to score 4-line Tetrises with vertical `I` pieces:
+1. **Vertical `I` in the well**: Rewarded heavily for 4-line clears; partial clears or debris left in the well incur penalties.
+2. **Column 9 overhangs**: Heavily penalized when column 9 exceeds the height of column 8.
+3. **Well blockage**: Covering empty cells in column 9 receives severe penalties.
+4. **Depth and lateral access**: Excessive well depth and neighboring spikes penalize the evaluation score.
 
-Na política v2:
+During emergency cleanup, well protection penalties are reduced to **8%**, enabling sacrificial partial clears when maintaining an open well is too dangerous.
 
-1. Avalia o perigo do tabuleiro e procura rotas a partir da posição real da peça, com movimentos laterais, rotações SRS nos dois sentidos e gravidade entre ações.
-2. Simula o travamento e a limpeza de linhas em cada candidato; avalia altura, buracos, relevo, corredor de nascimento, suporte e integridade do poço.
-3. Compara os melhores candidatos usando a próxima peça e uma camada adicional quando há perigo. Peças futuras usam um modelo de encaixe aproximado.
-4. Compara alternativas de hold e guarda a coluna, a rotação, a altura de aterrissagem, as ações e as posições esperadas.
-5. Executa a rota; se houver desvio ou bloqueio, recalcula em vez de forçar uma queda cega.
+### 3. Specialized Handling for Pieces (O, S, Z)
+- 🟨 **O-Piece (2×2 - Flat Base Preference)**:
+  - Requires a flat 2-cell base of identical height ($\Delta h = 0$).
+  - **Flat Platform Bonus**: Receives a +3,500 score bonus when placed on an even foundation.
+  - **Step Penalty**: Penalizes placement over steps of height $\ge 2$ ($-3,500 \times \Delta h$) which would create holes or spikes.
+  - **Preventive Hold**: On high bumpiness terrains without a 2-cell flat slot, v2 holds `O` when a flexible alternative exists.
+- 🟩 **S-Piece & 🟥 Z-Piece (Horizontal Alignment & Hold)**:
+  - **Horizontal Preference**: Horizontal orientations receive bonuses (+1,500 pts); vertical placements in uneven terrains are strongly penalized (-3,500 pts).
+  - **Emergency Swap**: If `S` or `Z` arrives under board stress (height $\ge 9$, bumpiness $\ge 8$, or existing holes), v2 prioritizes swapping with the Hold queue.
 
-A busca da rota atual é limitada a 2.048 estados e 32 ações. Conservar a primeira rota por posição/rotação pode excluir uma rota mais longa com outra fase de gravidade.
+### 4. Terrain Contour Management
+- 🥣 **Bowl Profile vs. Central Dome**:
+  - Prevents blocks from piling up in the center (columns 3–5). Keeps terrain flat or slightly concave, ensuring clear spawn and rotation clearance at the top.
+- 🏞️ **Left Cliff Suppression (Column 0)**:
+  - Prevents column 0 from dropping 2+ cells below column 1, eliminating single-cell blind ravines where pieces would get stuck.
 
-No modo de 10 colocações, uma busca em feixe substitui o ranqueamento adaptativo. Ela considera hold em cada camada, soma notas com desconto de 0,85 por profundidade e conserva até quatro estados distintos por padrão. Cores não fazem parte da identidade do estado; ocupação, peça atual, hold e posição na fila fazem. Apenas a primeira colocação é executada antes de uma nova busca.
+### 5. Dynamic Reactive Cleanup Mode
+The engine dynamically calculates its defense threshold via `GetDynamicCleanupThreshold`:
+- Base threshold starts at 14, decreases by 3 per existing hole, and decreases further if central height $\ge 9$ or bumpiness $\ge 8$.
+- **Early Activation**:
+  - If a hole forms at height $\ge 8$, cleanup mode triggers immediately to uncover it before new blocks bury it.
+  - If bumpiness reaches $\ge 13$ at height $\ge 8$, cleanup mode activates to smooth terrain.
+- **Drastic Weight Shifts in Cleanup Mode**:
+  - Penalty for creating new holes jumps from 15,000 to **55,000 points**.
+  - Partial line clears (1, 2, 3 lines) receive major positive bonuses (+35,000 to +95,000 pts) to rapidly deflate stack height.
 
----
+### 📊 Benchmark Performance Evolution
 
-### 2. A Estratégia 9-0 Stacking & As 4 Regras de Ouro do Poço
+Reproducible benchmark comparisons capped at 1,000 pieces per game:
 
-O empilhamento **9-0** privilegia as colunas **0 a 8** e reserva a **coluna 9** para Tetrises com a peça `I`. Essa preferência é expressa por penalidades, não por proibições absolutas:
-
-1. **I vertical no poço**: limpar quatro linhas recebe forte recompensa; limpezas parciais ou blocos residuais têm penalidades.
-2. **Espigões na coluna 9**: a nota cai quando a coluna 9 supera a coluna 8.
-3. **Fechamento do poço**: cobrir vazios na coluna 9 recebe uma penalidade alta.
-4. **Profundidade e acesso lateral**: poços excessivamente profundos e espigões próximos reduzem a nota.
-
-Durante a limpeza de emergência, as penalidades do poço são reduzidas para **8%**, permitindo limpezas parciais quando preservar o poço seria arriscado. Penalidades por buracos e bloqueios continuam ativas. `-reserve-well` mantém as penalidades rígidas para comparação. Valores heurísticos não são pontos concedidos ao jogador.
-
----
-
-### 3. Tratamento Especializado por Tipo de Peça (O, S, Z)
-
-A IA possui preferências específicas para `O`, `S` e `Z`. Os benchmarks atuais não demonstram que essas peças sejam as principais causas de top-out: a última peça colocada não é necessariamente a que falhou ao nascer.
-
-- 🟨 **Peça O (2×2 - Plataforma Plana)**:
-  - Como a peça `O` não rotaciona e possui largura 2, ela exige uma base plana de duas células adjacentes de mesma altura ($\Delta h = 0$).
-  - **Bônus de Plataforma Nivelada**: Recebe bônus heurístico de 3.500 quando há suporte nivelado, medido no tabuleiro **antes** da colocação.
-  - **Penalidade de Degrau**: Penaliza severamente ($-3.500\text{ pts} \times \Delta h$) o encaixe sobre degraus de altura $\ge 2$, que deixariam a peça suspensa criando buracos ou espigões.
-  - **Hold Preventivo para `O`**: Em terrenos com alta irregularidade ($\ge 12$) sem superfícies planas de 2 células, a política v2 favorece guardar `O` no hold quando uma alternativa flexível tem nota suficientemente próxima.
-- 🟩 **Peça S e 🟥 Peça Z (Alinhamento Horizontal & Hold)**:
-  - Peças diagonais causam problemas graves quando posicionadas verticalmente em espaços apertados, pois sua cauda inferior fica suspensa sobre vazios.
-  - **Preferência Horizontal**: Posições horizontais recebem bônus ($+1.500\text{ pts}$), enquanto orientações verticais em terrenos irregulares são fortemente desencorajadas ($-3.500\text{ pts}$).
-  - **Swap de Emergência no Hold**: Se uma peça `S` ou `Z` chega com o tabuleiro sob estresse (altura $\ge 9$, irregularidade $\ge 8$ ou presença de buracos), a política v2 favorece uma troca preventiva quando a alternativa de hold tem nota suficientemente próxima.
-
----
-
-### 4. Supressão de Deformidades de Terreno
-
-O relevo do tabuleiro é monitorado continuamente para prevenir a formação de armadilhas estruturais:
-
-- 🥣 **Perfil em Bacia (*Bowl Profile*) vs. Domo Central**:
-  - *Problema anterior*: O centro (colunas 3 a 5) acumulava blocos formando uma corcunda mais alta que as laterais, fazendo peças recém-nascidas colidirem logo na linha 0.
-  - *Solução*: As colunas centrais 3 a 5 são penalizadas se superarem a altura das laterais (colunas 0–2 ou 7–8). O terreno é mantido plano ou ligeiramente côncavo, oferecendo espaço livre no topo para rotação e transladação imediata ao spawnar.
-- 🏞️ **Supressão do Desfiladeiro da Esquerda (Coluna 0)**:
-  - Evita que a coluna 0 fique 2 ou mais blocos mais baixa que a coluna 1, o que criaria um poço cego de 1 célula na borda esquerda onde a maioria das peças não conseguiria encaixar sem travar.
-
----
-
-### 5. Modo de Limpeza Dinâmico e Reativo (Cleanup Mode)
-
-Em vez de depender de uma altura arbitrária fixa (como o antigo limiar estático de 65%), a IA calcula em tempo real o perigo através de `GetDynamicCleanupThreshold`:
-
-O limiar parte de 14, perde três unidades por buraco e, quando a altura central chega a 9, perde também `alturaCentral - 8`. Se a irregularidade exceder 8, subtrai `bumpiness - 7`. O resultado é limitado ao intervalo de 7 a 15; regras de emergência podem ativar a limpeza antes desse limiar.
-
-- **Ativação Precoce**:
-  - Se surgir o **primeiro buraco** na altura $\ge 8$, o modo de limpeza é ativado imediatamente para desenterrá-lo antes que ele seja coberto por novos blocos.
-  - Se a irregularidade (*bumpiness*) atingir $\ge 13$ na altura $\ge 8$, o modo de limpeza atua para aplanar espigões antes que uma peça desfavorável cause *top-out*.
-  - Se a altura central atingir $\ge 14$ ou a altura geral $\ge 16$, ativação de emergência máxima.
-- **Diferenciação de Peça de Linha Imediata**:
-  - Em terreno suficientemente seguro, uma peça `I` disponível na mão ou no hold pode adiar a limpeza; isso não verifica nem garante uma limpeza imediata de quatro linhas.
-  - Esperas por peças futuras da fila são proibidas se o centro estiver em risco ($\ge 11$ linhas).
-- **Mudança Drástica de Pesos no Modo Limpeza**:
-  - O custo de criar um buraco sobe de $15.000$ para **$55.000\text{ pts}$**, desencorajando limpezas que deixem buracos; isso não garante sua ausência.
-  - Linhas parciais (1, 2 e 3 linhas) passam a receber grandes recompensas positivas ($+35.000$ a $+95.000\text{ pts}$) para baixar a altura rapidamente.
-
----
-
-### 6. Mecânica de Lock Delay para Jogadores Humanos
-
-Em partidas manuais (`!AutoPlay`), o motor oferece tolerância antes do travamento:
-
-- Quando a peça toca o chão ou a superfície dos blocos, ela não trava imediatamente: uma tolerância de **2 ticks de gravidade** é concedida. Sua duração varia com o nível; não é um atraso fixo de 500 ms.
-- Cada movimento horizontal ou rotação bem-sucedida reinicia o temporizador (com limite de segurança de até 15 reinícios).
-- Pressionar **Espaço (Hard Drop)** trava a peça instantaneamente sem atraso.
-- No modo Auto-Play, a IA desativa o lock delay para manter execução de máxima velocidade.
-
----
-
-### 📊 Evolução Comparativa de Desempenho
-
-Comparações reproduzíveis com limite de 1.000 peças por partida:
-
-| Experimento | Política anterior | Política nova |
+| Experiment | Previous Policy | New Policy |
 |---|---:|---:|
-| Sobrevivência — 1.000 seeds (v1 → v2) | 41,1% | 88,6% |
-| Pontuação média — mesmas 1.000 seeds | 879.534 | 1.313.620 |
-| Participação de Tetrises — mesmas 1.000 seeds | 59,9% | 54,5% |
-| Sobrevivência — piloto de 20 seeds (v2 → lookahead 10) | 18/20 | 20/20 |
-| Pontuação média — mesmas 20 seeds | 1.343.355 | 1.496.056 |
-| Participação de Tetrises — mesmas 20 seeds | 55,6% | 70,7% |
+| Survival — 1,000 seeds (v1 → v2) | 41.1% | 88.6% |
+| Mean Score — same 1,000 seeds | 879,534 | 1,313,620 |
+| Tetris Share — same 1,000 seeds | 59.9% | 54.5% |
+| Survival — 20-seed pilot (v2 → 10-piece lookahead) | 18/20 | 20/20 |
+| Mean Score — same 20 seeds | 1,343,355 | 1,496,056 |
+| Tetris Share — same 20 seeds | 55.6% | 70.7% |
 
-A política v2 teve zero desvios nas 951.555 colocações com plano. O piloto de lookahead teve zero desvios nas 20.000 colocações, mas **não substitui uma validação com 1.000 partidas**. Chegar ao limite não significa sobrevivência indefinida; o piloto usa uma prévia maior e foi reutilizado durante o refinamento.
-
-O lookahead de profundidade 10 e feixe 4 levou, em média, cerca de 22 ms por decisão no tabuleiro vazio da máquina testada, contra 1,77 ms na v2. Isso não é um limite de latência nem uma promessa de desempenho em outros computadores. Consulte os [relatórios e comandos completos](benchmarks/README.md).
+*The v2 policy achieved zero plan misses across 951,555 planned placements.*
 
 ---
 
-## 🏛️ Estrutura do Código
+## 🏛️ Codebase Architecture
 
 ```
 tetris/
 ├── cmd/
-│   ├── tetris/           # Jogo interativo no terminal (Bubble Tea UI)
-│   ├── train/            # Orquestrador CLI headless de simulação concorrente
-│   ├── analyze/          # Relatório analítico de métricas agregadas
-│   ├── analyze_losses/   # Diagnóstico profundo de top-outs e causa raiz de mortes
-│   └── learn/            # Treino offline com alternativas simuladas e validação por seed
+│   ├── tetris/           # Interactive terminal game (Bubble Tea UI)
+│   ├── train/            # Headless concurrent CLI simulation orchestrator
+│   ├── analyze/          # Analytical CLI reporting aggregate metrics
+│   ├── analyze_losses/   # Forensic diagnosis of top-outs and game over causes
+│   └── learn/            # Offline model training with simulated counterfactuals
 ├── internal/
-│   ├── engine/           # Lógica pura do Tetris (100% desacoplada da UI)
-│   │   ├── board.go      # BitBoard 20xuint16, colisões, line clearing e bitwise masks
-│   │   ├── piece.go      # Definição e rotações dos 7 tetrominós (I, J, L, O, S, T, Z)
-│   │   ├── randomizer.go # Sistema de geração 7-Bag
-│   │   ├── game.go       # Loop do jogo, pontuação, níveis e estados
-│   │   ├── ai.go         # Heurísticas, lookahead adaptativo e perigo dinâmico
-│   │   ├── path.go       # Rotas legais com gravidade e replanejamento
-│   │   ├── beam.go       # Lookahead experimental de até 10 colocações
-│   │   ├── learned.go    # Modelo local, probabilidades e fallback
-│   │   └── learned_train.go # Simulações contrafactuais e ajuste offline
-│   ├── i18n/             # Internacionalização completa (EN, ES, PT-BR, FR, IT)
-│   ├── logger/           # Gravador assíncrono com canal e buffer bufio de 100 MB
-│   ├── simulator/        # Pool de workers concorrentes para partidas em paralelo
-│   ├── ui/               # Renderização de terminal com Lipgloss e Bubble Tea
-│   └── version/          # Controle centralizado de versão (v1.0.0) e build info
-├── packaging/            # Configurações de empacotamento nfpm (.deb, .rpm)
-├── scripts/              # Scripts de release, build multi-arch e instalador
-├── Formula/              # Fórmula Homebrew para macOS e Linux
-├── models/               # Modelo JSON versionado (move-risk.json)
-└── logs/                 # Destino dos datasets em JSON Lines (.jsonl)
+│   ├── engine/           # Pure Tetris domain logic (100% decoupled from UI)
+│   │   ├── board.go      # BitBoard 20xuint16, collisions, line clear, bitwise masks
+│   │   ├── piece.go      # Definitions and SRS rotations for 7 tetrominos (I, J, L, O, S, T, Z)
+│   │   ├── randomizer.go # Fair 7-Bag generation system
+│   │   ├── game.go       # Core game loop, scoring rules, levels, and state machine
+│   │   ├── ai.go         # Heuristics, adaptive lookahead, and dynamic hazard detection
+│   │   ├── path.go       # Legal gravity-aware pathfinding and replanning
+│   │   ├── beam.go       # Multi-ply lookahead beam search (up to 10 placements)
+│   │   ├── learned.go    # Local risk model, inference, and heuristic fallback
+│   │   └── learned_train.go # Counterfactual rollout simulations and training
+│   ├── i18n/             # Full internationalization dictionary (9 languages)
+│   ├── logger/           # Non-blocking async logger with 100 MB buffered channel
+│   ├── simulator/        # Concurrent worker pool for parallel simulations
+│   ├── ui/               # Terminal presentation layer using Lipgloss and Bubble Tea
+│   └── version/          # Centralized version control (v1.0.0) and build metadata
+├── packaging/            # nfpm packaging definitions (.deb, .rpm)
+├── scripts/              # Build, cross-compilation, packaging, and install scripts
+├── Formula/              # Homebrew tap formula for macOS and Linux
+├── models/               # Versioned machine learning model weights (move-risk.json)
+└── logs/                 # Output directory for JSON Lines datasets (.jsonl)
 ```
 
 ---
 
-## ⚙️ Flags de Linha de Comando
+## ⚙️ Command Line Options
 
-```bash
-tetris [flags]
+```text
+Usage: tetris [flags]
 
 Flags:
-  -v, --version        Exibe a versão do Tetris (v1.0.0) e encerra
-  --lang string        Idioma da interface (english, spanish, pt-br, french, ita)
-  --idiom string       Alias para --lang
-  --learned            Ativar IA híbrida experimental com modelo treinado
-  --lookahead int      Lookahead experimental de colocações: 0 (v2) ou 1..10
-  --beam-width int     Largura do feixe no lookahead (1..64, padrão: 4)
-  --model string       Caminho para modelo de risco personalizado
-  --train              Executa simulações em background
-  --games int          Total de partidas no modo headless (padrão: 100)
-  --workers int        Número de workers paralelos (1 a 50)
-  --file string        Caminho do arquivo de log (.jsonl)
+  -v, --version        Print Tetris version (v1.0.0) and exit
+  --lang string        Interface language (pt-br, en, es, fr, it, de, ru, ja, zh)
+  --idiom string       Alias for --lang
+  --learned            Enable experimental hybrid AI with trained risk model
+  --lookahead int      Experimental lookahead depth: 0 (v2 default) or 1..10
+  --beam-width int     Beam width for lookahead search (1..64, default: 4)
+  --model string       Path to custom risk model (default: models/move-risk.json)
+  --train              Run headless simulations in background
+  --games int          Total games to run in headless mode (default: 100)
+  --workers int        Concurrent workers pool size (1 to 50)
+  --file string        Output path for JSONL dataset log
 ```
 
 ---
 
-## 🧪 Testes Automatizados
+## 🧪 Automated Testing Suite
 
-O projeto possui cobertura abrangente de testes unitários em todos os pacotes do domínio:
+The codebase features comprehensive unit test coverage across all domain packages:
 
 ```bash
+# Run all unit tests:
 go test ./...
+
+# Run race condition detector:
 go test -race ./...
+
+# Run static analysis and linting:
 go vet ./...
 ```
 
 ---
 
-## 📄 Licença
+## 📄 License
 
-Este projeto é disponibilizado sob a licença [MIT](LICENSE).
+This project is open-source software licensed under the [MIT License](LICENSE).
