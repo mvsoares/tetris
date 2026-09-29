@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"tetris/internal/engine"
+	"tetris/internal/i18n"
 	"tetris/internal/logger"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,13 +27,16 @@ func aiTickCmd() tea.Cmd {
 }
 
 type Model struct {
-	game          *engine.Game
-	width         int
-	height        int
-	quitting      bool
-	nextGravityAt time.Time
-	aiMenuOpen    bool
-	aiMenuChoice  int
+	game           *engine.Game
+	width          int
+	height         int
+	quitting       bool
+	nextGravityAt  time.Time
+	aiMenuOpen     bool
+	aiMenuChoice   int
+	lang           i18n.Language
+	langMenuOpen   bool
+	langMenuChoice int
 }
 
 func NewModel() *Model {
@@ -44,6 +48,10 @@ func NewModelWithLookahead(depth, width int) *Model {
 }
 
 func NewModelWithLearned(depth, width int, model *engine.MoveModel, learned bool) *Model {
+	return NewModelWithLearnedAndLang(depth, width, model, learned, i18n.LangPTBR)
+}
+
+func NewModelWithLearnedAndLang(depth, width int, model *engine.MoveModel, learned bool, lang i18n.Language) *Model {
 	g := engine.NewGame()
 	g.ConfigureLookahead(depth, width)
 	g.LearnedModel, g.UseLearned = model, learned
@@ -52,6 +60,7 @@ func NewModelWithLearned(depth, width int, model *engine.MoveModel, learned bool
 	}
 	return &Model{
 		game: g,
+		lang: lang,
 	}
 }
 
@@ -60,7 +69,21 @@ func NewModelWithLogger(l *logger.Logger) *Model {
 	g.SetLogger(l)
 	return &Model{
 		game: g,
+		lang: i18n.LangPTBR,
 	}
+}
+
+// SetLanguage changes the current UI language.
+func (m *Model) SetLanguage(lang i18n.Language) {
+	m.lang = lang
+}
+
+// Language returns the current UI language.
+func (m *Model) Language() i18n.Language {
+	if m.lang == "" {
+		return i18n.LangPTBR
+	}
+	return m.lang
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -79,14 +102,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		if !m.aiMenuOpen && m.game.State == engine.StatePlaying {
+		if !m.aiMenuOpen && !m.langMenuOpen && m.game.State == engine.StatePlaying {
 			m.game.Tick()
 		}
 		m.nextGravityAt = time.Now().Add(m.game.TickInterval())
 		return m, tickCmd(m.game.TickInterval())
 
 	case aiTickMsg:
-		if !m.aiMenuOpen && m.game.AutoPlay && m.game.State == engine.StatePlaying {
+		if !m.aiMenuOpen && !m.langMenuOpen && m.game.AutoPlay && m.game.State == engine.StatePlaying {
 			remaining := m.game.TickInterval()
 			if !m.nextGravityAt.IsZero() {
 				remaining = time.Until(m.nextGravityAt)
@@ -98,16 +121,57 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		key := msg.String()
+
+		// 1. Language Menu Handling
+		if m.langMenuOpen && key != "ctrl+c" {
+			numLangs := len(i18n.AvailableLanguages)
+			switch key {
+			case "esc", "l", "L":
+				m.langMenuOpen = false
+			case "up", "left":
+				m.langMenuChoice = (m.langMenuChoice + numLangs - 1) % numLangs
+			case "down", "right", "tab":
+				m.langMenuChoice = (m.langMenuChoice + 1) % numLangs
+			case "1":
+				m.langMenuChoice = 0
+			case "2":
+				m.langMenuChoice = 1
+			case "3":
+				m.langMenuChoice = 2
+			case "4":
+				m.langMenuChoice = 3
+			case "5":
+				m.langMenuChoice = 4
+			case "6":
+				m.langMenuChoice = 5
+			case "7":
+				m.langMenuChoice = 6
+			case "8":
+				m.langMenuChoice = 7
+			case "9":
+				m.langMenuChoice = 8
+			case "enter", " ":
+				if m.langMenuChoice >= 0 && m.langMenuChoice < numLangs {
+					m.lang = i18n.AvailableLanguages[m.langMenuChoice].Code
+				}
+				m.langMenuOpen = false
+			case "q":
+				m.quitting = true
+				_ = m.game.CloseLogger()
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		// 2. AI Menu Handling
 		if m.aiMenuOpen && key != "q" && key != "ctrl+c" {
 			switch key {
 			case "esc", "m", "M":
 				m.aiMenuOpen = false
-			case "up", "down", "left", "right", "tab":
-				if key == "up" || key == "left" {
-					m.aiMenuChoice = (m.aiMenuChoice + 2) % 3
-				} else {
-					m.aiMenuChoice = (m.aiMenuChoice + 1) % 3
-				}
+			case "up", "left":
+				m.aiMenuChoice = (m.aiMenuChoice + 2) % 3
+			case "down", "right", "tab":
+				m.aiMenuChoice = (m.aiMenuChoice + 1) % 3
 			case "1":
 				m.aiMenuChoice = 0
 			case "2":
@@ -121,7 +185,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				learned := m.aiMenuChoice == 2
 				if learned && m.game.LearnedModel == nil {
-					m.game.LastAction = "MODELO INDISPONÍVEL"
+					tr := i18n.Get(m.Language())
+					m.game.LastAction = tr.AIModelUnavailable
 					return m, nil
 				}
 				if m.game.UseLearned != learned || m.game.LookaheadDepth != depth || (depth > 0 && m.game.BeamWidth != 4) {
@@ -138,7 +203,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		switch msg.String() {
+
+		// 3. Global Top-level Keys
+		switch key {
 		case "m", "M":
 			m.aiMenuOpen = true
 			m.aiMenuChoice = 0
@@ -149,6 +216,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.aiMenuChoice = 2
 			}
 			return m, nil
+
+		case "l", "L":
+			m.langMenuOpen = true
+			m.langMenuChoice = 0
+			for idx, langInfo := range i18n.AvailableLanguages {
+				if langInfo.Code == m.Language() {
+					m.langMenuChoice = idx
+					break
+				}
+			}
+			return m, nil
+
 		case "ctrl+c", "q", "esc":
 			m.quitting = true
 			_ = m.game.CloseLogger()
@@ -167,8 +246,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// 4. In-game Play Keys
 		if m.game.State == engine.StatePlaying {
-			switch msg.String() {
+			switch key {
 			case "left", "a", "h":
 				m.game.MoveLeft()
 			case "right", "d", "l":

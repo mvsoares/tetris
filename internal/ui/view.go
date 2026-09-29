@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"tetris/internal/engine"
+	"tetris/internal/i18n"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -51,6 +52,7 @@ func renderMiniPiece(t engine.TetrominoType) string {
 }
 
 func (m *Model) renderBoard() string {
+	tr := i18n.Get(m.Language())
 	b := m.game.Board
 	currPiece := m.game.CurrentPiece
 
@@ -100,12 +102,18 @@ func (m *Model) renderBoard() string {
 
 	// If paused or game over, display overlay
 	if m.game.State == engine.StatePaused {
-		overlay := PausedStyle.Render("   PAUSADO   \n\nPressione P\npara continuar")
+		overlay := PausedStyle.Render(tr.PausedTitle + "\n\n" + tr.PausedPrompt)
 		return BoardBoxStyle.Render(lipgloss.Place(20, 20, lipgloss.Center, lipgloss.Center, overlay))
 	} else if m.game.State == engine.StateGameOver {
 		overlay := GameOverStyle.Render(
-			fmt.Sprintf(" GAME OVER \n\nPontos: %d\nLinhas: %d\nTetris: %d\n\n[R] Reiniciar\n[Q] Sair",
-				m.game.Score, m.game.Lines, m.game.Tetrises),
+			fmt.Sprintf("%s\n\n%s\n%s\n%s\n\n%s\n%s",
+				tr.GameOverTitle,
+				tr.FormatGameOverScore(m.game.Score),
+				tr.FormatGameOverLines(m.game.Lines),
+				tr.FormatGameOverTetris(m.game.Tetrises),
+				tr.GameOverRestart,
+				tr.GameOverQuit,
+			),
 		)
 		return BoardBoxStyle.Render(lipgloss.Place(20, 20, lipgloss.Center, lipgloss.Center, overlay))
 	}
@@ -114,6 +122,7 @@ func (m *Model) renderBoard() string {
 }
 
 func (m *Model) renderLeftPanel() string {
+	tr := i18n.Get(m.Language())
 	// 1. Hold Box (fixed height)
 	holdContent := "        \n        "
 	if m.game.HoldPiece != nil {
@@ -121,7 +130,7 @@ func (m *Model) renderLeftPanel() string {
 	}
 	holdBox := PanelBoxStyle.Width(16).Height(4).Render(
 		fmt.Sprintf("%s\n\n%s",
-			HeaderLabelStyle.Render("HOLD [C]"),
+			HeaderLabelStyle.Render(tr.HoldHeader),
 			lipgloss.NewStyle().Align(lipgloss.Center).Render(holdContent),
 		),
 	)
@@ -136,20 +145,20 @@ func (m *Model) renderLeftPanel() string {
 		if m.game.CurrentAIMove != nil && m.game.CurrentAIMove.MoveProbability != nil {
 			probability = fmt.Sprintf("%.1f%%", *m.game.CurrentAIMove.MoveProbability*100)
 		}
-		actionLine += fmt.Sprintf("\nP%d sim: %s", m.game.LearnedModel.Horizon, probability)
+		actionLine += "\n" + tr.FormatSimHorizon(m.game.LearnedModel.Horizon, probability)
 	}
 
 	statsContent := fmt.Sprintf(
 		"%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s",
-		HeaderLabelStyle.Render("SCORE"),
+		HeaderLabelStyle.Render(tr.Score),
 		ValueStyle.Render(fmt.Sprintf("%d", m.game.Score)),
-		HeaderLabelStyle.Render("HIGH SCORE"),
+		HeaderLabelStyle.Render(tr.HighScore),
 		ValueStyle.Render(fmt.Sprintf("%d", m.game.HighScore)),
-		HeaderLabelStyle.Render("LEVEL"),
+		HeaderLabelStyle.Render(tr.Level),
 		ValueStyle.Render(fmt.Sprintf("%d", m.game.Level)),
-		HeaderLabelStyle.Render("LINES"),
+		HeaderLabelStyle.Render(tr.Lines),
 		ValueStyle.Render(fmt.Sprintf("%d", m.game.Lines)),
-		HeaderLabelStyle.Render("TETRIS"),
+		HeaderLabelStyle.Render(tr.Tetris),
 		ValueStyle.Render(fmt.Sprintf("%d", m.game.Tetrises)),
 		actionLine,
 	)
@@ -160,6 +169,7 @@ func (m *Model) renderLeftPanel() string {
 }
 
 func (m *Model) renderRightPanel() string {
+	tr := i18n.Get(m.Language())
 	// 1. Next Box (shows upcoming 2 pieces with fixed height)
 	var nextPreviews []string
 	for i := 0; i < 2; i++ {
@@ -180,34 +190,54 @@ func (m *Model) renderRightPanel() string {
 		nextHeight = 9
 	}
 
-	nextBox := PanelBoxStyle.Width(20).Height(nextHeight).Render(
+	nextBox := PanelBoxStyle.Width(22).Height(nextHeight).Render(
 		fmt.Sprintf("%s\n\n%s",
-			HeaderLabelStyle.Render("NEXT"),
+			HeaderLabelStyle.Render(tr.NextHeader),
 			lipgloss.NewStyle().Align(lipgloss.Center).Render(nextContent),
 		),
 	)
 
-	// 2. Controls Box (fixed height)
+	// Space key display label per language
+	spaceKeyLabel := "Espaço "
+	switch m.Language() {
+	case i18n.LangEN, i18n.LangJA:
+		spaceKeyLabel = "Space  "
+	case i18n.LangFR:
+		spaceKeyLabel = "Espace "
+	case i18n.LangES:
+		spaceKeyLabel = "Espacio"
+	case i18n.LangIT:
+		spaceKeyLabel = "Spazio "
+	case i18n.LangDE:
+		spaceKeyLabel = "Leert. "
+	case i18n.LangRU:
+		spaceKeyLabel = "Пробел "
+	case i18n.LangZH:
+		spaceKeyLabel = "空格键 "
+	}
+
+	// 2. Controls Box (fixed height 16 to comfortably fit all 14 rows)
 	controlsContent := fmt.Sprintf(
-		"%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s",
-		KeyStyle.Render("← / →  "), DescStyle.Render("Mover"),
-		KeyStyle.Render("↓      "), DescStyle.Render("Soft Drop"),
-		KeyStyle.Render("Espaço "), DescStyle.Render("Hard Drop"),
-		KeyStyle.Render("↑ / X  "), DescStyle.Render("Girar Horário"),
-		KeyStyle.Render("Z      "), DescStyle.Render("Girar Anti-h"),
-		KeyStyle.Render("C / H  "), DescStyle.Render("Guardar Peça"),
-		KeyStyle.Render("B / Tab"), DescStyle.Render("Auto-Play (IA)"),
-		KeyStyle.Render("M      "), DescStyle.Render("Escolher IA"),
-		KeyStyle.Render("4 / I  "), DescStyle.Render("4 Linhas (I)"),
-		KeyStyle.Render("T      "), DescStyle.Render("Setup Tetris"),
-		KeyStyle.Render("P      "), DescStyle.Render("Pausar"),
-		KeyStyle.Render("R      "), DescStyle.Render("Reiniciar"),
-		KeyStyle.Render("Q / Esc"), DescStyle.Render("Sair"),
+		"%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s",
+		KeyStyle.Render("← / →  "), DescStyle.Render(tr.KeyMove),
+		KeyStyle.Render("↓      "), DescStyle.Render(tr.KeySoftDrop),
+		KeyStyle.Render(spaceKeyLabel), DescStyle.Render(tr.KeyHardDrop),
+		KeyStyle.Render("↑ / X  "), DescStyle.Render(tr.KeyRotateCW),
+		KeyStyle.Render("Z      "), DescStyle.Render(tr.KeyRotateCCW),
+		KeyStyle.Render("C / H  "), DescStyle.Render(tr.KeyHold),
+		KeyStyle.Render("B / Tab"), DescStyle.Render(tr.KeyAutoPlay),
+		KeyStyle.Render("M      "), DescStyle.Render(tr.KeySelectAI),
+		KeyStyle.Render("L      "), DescStyle.Render(tr.KeySelectLang),
+		KeyStyle.Render("4 / I  "), DescStyle.Render(tr.KeyFourLines),
+		KeyStyle.Render("T      "), DescStyle.Render(tr.KeySetupTetris),
+		KeyStyle.Render("P      "), DescStyle.Render(tr.KeyPause),
+		KeyStyle.Render("R      "), DescStyle.Render(tr.KeyRestart),
+		KeyStyle.Render("Q / Esc"), DescStyle.Render(tr.KeyQuit),
 	)
 
-	controlsBox := PanelBoxStyle.Width(20).Height(15).Render(
+	controlsBox := PanelBoxStyle.Width(22).Height(16).Render(
 		fmt.Sprintf("%s\n\n%s",
-			HeaderLabelStyle.Render("CONTROLES"),
+			HeaderLabelStyle.Render(tr.ControlsHeader),
 			controlsContent,
 		),
 	)
@@ -215,16 +245,45 @@ func (m *Model) renderRightPanel() string {
 	return lipgloss.JoinVertical(lipgloss.Left, nextBox, controlsBox)
 }
 
+func (m *Model) renderLangMenu() string {
+	tr := i18n.Get(m.Language())
+	var options []string
+	for i, langInfo := range i18n.AvailableLanguages {
+		prefix := "  "
+		if i == m.langMenuChoice {
+			prefix = "> "
+		}
+		activeMark := ""
+		if langInfo.Code == m.Language() {
+			activeMark = "  ✓"
+		}
+		options = append(options, fmt.Sprintf("%s%d. %s %s (%s)%s", prefix, i+1, langInfo.Flag, langInfo.NativeName, langInfo.Name, activeMark))
+	}
+	content := HeaderLabelStyle.Render(tr.LangMenuTitle) + "\n\n" +
+		strings.Join(options, "\n") + "\n\n" +
+		tr.LangMenuHelp
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, PanelBoxStyle.Padding(1, 2).Render(content))
+}
+
 // View implements tea.Model View method.
 func (m *Model) View() string {
 	// Check terminal dimensions
 	if m.width < MinTerminalWidth || m.height < MinTerminalHeight {
-		return RenderTooSmallView(m.width, m.height)
+		return RenderTooSmallViewWithLang(m.width, m.height, m.Language())
 	}
+
+	tr := i18n.Get(m.Language())
+
+	// Language selection modal
+	if m.langMenuOpen {
+		return m.renderLangMenu()
+	}
+
+	// AI selection modal
 	if m.aiMenuOpen {
-		options := []string{"1. IA atual (v2)", "2. Lookahead 10 peças (beam 4)", "3. IA híbrida (experimental)"}
+		options := []string{tr.AIOptionCurrent, tr.AIOptionLookahead, tr.AIOptionHybrid}
 		if m.game.LearnedModel == nil {
-			options[2] += " — indisponível"
+			options[2] += tr.AIUnavailable
 		}
 		for i := range options {
 			prefix := "  "
@@ -233,29 +292,29 @@ func (m *Model) View() string {
 			}
 			options[i] = prefix + options[i]
 		}
-		content := HeaderLabelStyle.Render("ESCOLHER IA") + "\n\n" + strings.Join(options, "\n\n") +
-			"\n\n↑/↓ ou 1/2/3: escolher\nEnter: confirmar | Esc/M: voltar\n\nAlterar IA reinicia a partida.\nB/Tab: ativar Auto-Play no jogo."
+		content := HeaderLabelStyle.Render(tr.AIMenuTitle) + "\n\n" + strings.Join(options, "\n\n") +
+			"\n\n" + tr.AIMenuHelp
 		if m.game.LearnedModel != nil {
-			content += fmt.Sprintf("\nModelo: sobrevivência por %d colocações simuladas.", m.game.LearnedModel.Horizon)
+			content += "\n" + tr.FormatAIModelHorizon(m.game.LearnedModel.Horizon)
 		}
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, PanelBoxStyle.Padding(1, 2).Render(content))
 	}
 
-	headerText := TitleStyle.Render("🎮  T E T R I S   G O  🎮")
+	headerText := TitleStyle.Render(tr.Title)
 	if m.game.AutoPlay {
 		badgeColor := "#a6e3a1" // Green
-		badgeText := "🤖 AUTO-PLAY ON"
+		badgeText := tr.AutoPlayOn
 		if engine.IsCleanupMode(m.game) {
 			badgeColor = "#fab387" // Orange
-			badgeText = fmt.Sprintf("🤖 AUTO-PLAY [🚨 LIMPEZA %d%%+]", engine.CleanupThresholdPercent(m.game))
+			badgeText = tr.FormatAutoPlayCleanup(engine.CleanupThresholdPercent(m.game))
 		} else if engine.IsHighSpeedMode(m.game) {
-			badgeText = "🤖 AUTO-PLAY ON [⚡ TETRIS 40%]"
+			badgeText = tr.AutoPlaySpeed
 		}
 		if m.game.LookaheadDepth > 0 {
-			badgeText += fmt.Sprintf(" [%d peças]", m.game.LookaheadDepth)
+			badgeText += tr.FormatLookahead(m.game.LookaheadDepth)
 		}
 		if m.game.UseLearned {
-			badgeText += " [HÍBRIDA]"
+			badgeText += tr.HybridBadge
 		}
 		autoBadge := lipgloss.NewStyle().
 			Bold(true).

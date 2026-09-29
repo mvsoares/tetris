@@ -1,5 +1,37 @@
 # Histórico de alterações
 
+## [1.0.0] — 29/09/2026 — Lançamento Oficial: Suporte Multilíngue (9 Idiomas), Empacotamento (.deb, .rpm, macOS) e Automação de Release
+
+### Adicionado
+
+- **Suporte Multilíngue Completo (i18n)** em `internal/i18n`:
+  - 9 idiomas suportados nativamente:
+    - 🇧🇷 Português do Brasil (`pt-br`, `pt`)
+    - 🇺🇸 Inglês (`en`, `english`)
+    - 🇪🇸 Espanhol (`es`, `spanish`)
+    - 🇫🇷 Francês (`fr`, `french`)
+    - 🇮🇹 Italiano (`it`, `ita`, `italian`)
+    - 🇩🇪 Alemão (`de`, `german`, `deutsch`)
+    - 🇷🇺 Russo (`ru`, `russian`)
+    - 🇯🇵 Japonês (`ja`, `japanese`)
+    - 🇨🇳 Chinês Simplificado (`zh`, `chinese`)
+  - Troca dinâmica de idioma em tempo de execução via tecla `L` com menu modal interativo (teclas 1..9 ou setas).
+  - Seleção de idioma via linha de comando através das flags `--lang=<idioma>` e `--idiom=<idioma>`.
+  - Localização completa de cabeçalhos, estatísticas, painéis de controles, telas de aviso de terminal pequeno, menu de IA e overlays de Pausa e Game Over.
+- **Empacotamento e Distribuição Multi-Plataforma**:
+  - Pacotes Debian (`.deb`) para arquiteturas `amd64` e `arm64` (`dist/tetris_1.0.0_*.deb`).
+  - Pacotes RPM (`.rpm`) para Fedora, RHEL e CentOS para arquiteturas `x86_64` e `aarch64` (`dist/tetris-1.0.0-1.*.rpm`).
+  - Pacotes compactados `.tar.gz` para macOS (Apple Silicon `darwin_arm64` e Intel `darwin_amd64`) e Linux.
+  - Pacote `.zip` para Windows (`windows_amd64`).
+  - Geração de tabela de verificação criptográfica SHA-256 (`dist/checksums.txt`).
+- **Automação de Build e Release**:
+  - Script `scripts/build-release.sh` para compilação cruzada e geração automática de todos os pacotes usando `nfpm` e ferramentas nativas.
+  - Script `scripts/release.sh` para criação de tag git `v1.0.0` e publicação de release via GitHub CLI (`gh release create`).
+  - Script universal de instalação `scripts/install.sh` (`curl -fsSL ... | bash`) com auto-detecção de sistema operacional e arquitetura.
+  - Fórmula Homebrew em `Formula/tetris.rb` para usuários de macOS e Linux.
+  - `Makefile` com alvos `build`, `test`, `release`, `install` e `clean`.
+  - Flags de versão `--version` e `-v` no executável informando a versão de lançamento e metadados de build.
+
 ## 28/09/2026 — Motor BitBoard, melhorias nas 3 políticas de IA e modelo de 50 atributos
 
 ### Adicionado

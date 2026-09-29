@@ -1,15 +1,52 @@
 # 🎮 Tetris CLI em Go
 
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/mvsoares/tetris/releases)
+[![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://golang.org)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![i18n](https://img.shields.io/badge/languages-9%20Idiomas%20(PT--BR%20%7C%20EN%20%7C%20ES%20%7C%20FR%20%7C%20IT%20%7C%20DE%20%7C%20RU%20%7C%20JA%20%7C%20ZH)-orange.svg)](#-idiomas--multilingual-support)
+
 Uma implementação moderna, fluida e de alto desempenho do clássico **Tetris** para terminal, desenvolvida em **Go** com a arquitetura [Bubble Tea](https://github.com/charmbracelet/bubbletea) (The Elm Architecture) e estilizada com [Lipgloss](https://github.com/charmbracelet/lipgloss).
 
-Inclui um **Auto-Play com IA Heurística Adaptativa**, um **motor de simulação headless concorrente**, um **logger assíncrono com buffer configurável** para geração de datasets JSONL e ferramentas CLI de análise profunda de partidas e derrotas. O desempenho depende da política, do modo de simulação e do hardware.
+Inclui **suporte completo a 9 idiomas** (Português, Inglês, Espanhol, Francês, Italiano, Alemão, Russo, Japonês e Chinês Simplificado), **Auto-Play com IA Heurística Adaptativa e Motor BitBoard**, **motor de simulação headless concorrente**, **logger assíncrono com buffer configurável** para geração de datasets JSONL e ferramentas CLI de análise profunda de partidas e derrotas.
 
 Veja o [histórico de alterações](CHANGELOG.md) e os [resultados dos benchmarks](benchmarks/README.md).
 
 ---
 
+## 🌐 Idiomas / Multilingual Support
+
+O Tetris conta com tradução nativa completa para **9 idiomas**:
+- 🇧🇷 **Português do Brasil** (`pt-br`, `pt`) — *padrão*
+- 🇺🇸 **English** (`en`, `english`)
+- 🇪🇸 **Español** (`es`, `spanish`)
+- 🇫🇷 **Français** (`fr`, `french`)
+- 🇮🇹 **Italiano** (`it`, `ita`, `italian`)
+- 🇩🇪 **Deutsch** (`de`, `german`, `deutsch`)
+- 🇷🇺 **Русский** (`ru`, `russian`)
+- 🇯🇵 **日本語** (`ja`, `japanese`)
+- 🇨🇳 **简体中文** (`zh`, `chinese`)
+
+### Como alterar o idioma:
+1. **Durante o jogo**: Pressione a tecla **`L`** a qualquer momento para abrir o menu interativo de seleção de idioma (1 a 9 ou setas).
+2. **Na linha de comando**: Inicie o jogo com a flag `--lang` ou `--idiom`:
+   ```bash
+   tetris --lang=ja        # 日本語 (Japonês)
+   tetris --lang=ru        # Русский (Russo)
+   tetris --lang=de        # Deutsch (Alemão)
+   tetris --lang=zh        # 简体中文 (Chinês)
+   tetris --lang=english   # English
+   tetris --lang=spanish   # Español
+   tetris --lang=french    # Français
+   tetris --lang=ita       # Italiano
+   tetris --lang=pt-br     # Português do Brasil
+   ```
+
+---
+
 ## 🌟 Principais Recursos
 
+- 🌐 **Multilíngue Global (i18n)**: 9 idiomas suportados com alternador dinâmico em tempo de execução (`L`, teclas 1..9) e flags CLI (`--lang`, `--idiom`).
+- 📦 **Empacotamento Oficial (v1.0.0)**: Pacotes prontos para **Debian/Ubuntu (`.deb`)**, **Fedora/RHEL (`.rpm`)**, **macOS (`.tar.gz` / Homebrew)** e **Windows (`.zip`)**.
 - 🎨 **Interface Rica no Terminal**: Renderização TrueColor sem cintilação (*flicker-free*) no buffer alternativo (`tea.WithAltScreen`), com proporção de blocos 1:2 (`██`) e proteção de redimensionamento (`SIGWINCH`).
 - 🕹️ **Mecânicas Modernas Oficiais**:
   - Randomizador **7-Bag** justo (sem secas prolongadas de peças).
@@ -18,19 +55,19 @@ Veja o [histórico de alterações](CHANGELOG.md) e os [resultados dos benchmark
   - **Hold Queue** com limite de 1 troca por travamento.
   - **Contador de Tetrises** na interface (painel lateral e tela de Game Over).
   - **Gravidade Progressiva**: A velocidade de queda aumenta a cada 10 linhas limpas.
-- 🤖 **Auto-Play Inteligente (IA com Stacking 9-0 & Lookahead)**:
+- 🤖 **Auto-Play Inteligente (IA com Stacking 9-0, BitBoard & Lookahead)**:
+  - **Motor BitBoard**: Execução ultrarrápida com representação bitwise de 40 bytes na stack.
   - **Estratégia 9-0**: Constrói a pilha nas colunas 0 a 8 e mantém a coluna 9 aberta para a chegada da peça `I`.
   - **Rotas legais com gravidade**: Planeja movimentos reais e recalcula a rota quando necessário.
   - **Lookahead adaptativo**: A política v2 avalia a próxima peça e aprofunda a busca quando há perigo.
   - **Lookahead experimental de 10 peças**: Busca em feixe com hold e remoção de estados duplicados, selecionável pelo menu `M`.
   - **Modelo local de risco**: Estimativas treinadas com alternativas simuladas; terceira opção experimental no menu. A v2 permanece padrão.
-  - **Heurística Dinâmica de Perigo**: Substitui limiares rígidos por análise contínua de terreno, buracos e proteção do corredor de spawn (colunas 3 a 6).
 - ⚡ **Simulador Headless em Background (`./train`)**:
   - Worker pool concorrente com até **50 partidas paralelas** usando todas as threads da CPU.
   - Seeds reproduzíveis e modos `placement` e `gameplay`, com motivos explícitos de encerramento.
 - 💾 **Logger Assíncrono com Buffer de 100 MB**:
   - Buffer de gravação de 100 MB via `bufio.Writer` e canal em fila de 131.072 itens.
-  - Grava JSON Lines (`.jsonl`) com matrizes `20x10`, relevo, buracos, pontuação e telemetria de planos; a escrita pode aplicar contrapressão quando a fila fica cheia.
+  - Grava JSON Lines (`.jsonl`) com matrizes `20x10`, relevo, buracos, pontuação e telemetria de planos.
 - 📊 **Ferramentas CLI Analíticas**:
   - `./analyze`: Estatísticas agregadas, taxa de Tetris, pontuação e distribuição de linhas.
   - `./analyze_losses`: Diagnóstico profundo da causa raiz de cada Game Over (top-outs, relevo e buracos).
@@ -45,7 +82,7 @@ Veja o [histórico de alterações](CHANGELOG.md) e os [resultados dos benchmark
 ├──────────────────────┼────────────────────────────────────────────────────────┤
 │ ← / A / H            │ Mover peça para a Esquerda                             │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
-│ → / D / L            │ Mover peça para a Direita                              │
+│ → / D / L (no jogo)  │ Mover peça para a Direita                              │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
 │ ↓ / S / J            │ Soft Drop (queda acelerada com bônus de pontuação)     │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
@@ -61,6 +98,8 @@ Veja o [histórico de alterações](CHANGELOG.md) e os [resultados dos benchmark
 ├──────────────────────┼────────────────────────────────────────────────────────┤
 │ M                    │ Abrir menu para escolher a política de IA             │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
+│ L                    │ Abrir menu de seleção de Idioma (PT-BR, EN, ES, FR, IT)│
+├──────────────────────┼────────────────────────────────────────────────────────┤
 │ 4 / I                │ Forçar chegada de 4 peças de Linha (I) consecutivas    │
 ├──────────────────────┼────────────────────────────────────────────────────────┤
 │ T                    │ Setup Instantâneo de 4 Linhas para Tetris              │
@@ -71,6 +110,53 @@ Veja o [histórico de alterações](CHANGELOG.md) e os [resultados dos benchmark
 ├──────────────────────┼────────────────────────────────────────────────────────┤
 │ Q / Esc / Ctrl+C     │ Sair do jogo                                           │
 └──────────────────────┴────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📦 Instalação dos Pacotes Oficiais (v1.0.0)
+
+### Opção 1: Instalador Automático Universal (Linux e macOS)
+Execute no seu terminal para detectar a sua distribuição/SO e instalar automaticamente a versão mais recente:
+```bash
+curl -fsSL https://raw.githubusercontent.com/mvsoares/tetris/main/scripts/install.sh | bash
+```
+
+### Opção 2: Debian / Ubuntu (`.deb`)
+Baixe o pacote da release para sua arquitetura (`amd64` ou `arm64`) e instale:
+```bash
+# Para arquitetura x86_64 / amd64:
+sudo dpkg -i tetris_1.0.0_amd64.deb
+
+# Para arquitetura ARM64:
+sudo dpkg -i tetris_1.0.0_arm64.deb
+```
+
+### Opção 3: Fedora / Red Hat / CentOS (`.rpm`)
+```bash
+# Para arquitetura x86_64:
+sudo rpm -Uvh tetris-1.0.0-1.x86_64.rpm
+# ou
+sudo dnf install tetris-1.0.0-1.x86_64.rpm
+
+# Para arquitetura aarch64 (ARM64):
+sudo rpm -Uvh tetris-1.0.0-1.aarch64.rpm
+```
+
+### Opção 4: macOS (Apple Silicon ou Intel)
+Baixe o arquivo compactado da release:
+```bash
+# Apple Silicon (M1/M2/M3/M4):
+tar -xzf tetris_1.0.0_darwin_arm64.tar.gz
+sudo mv tetris /usr/local/bin/
+
+# Mac Intel:
+tar -xzf tetris_1.0.0_darwin_amd64.tar.gz
+sudo mv tetris /usr/local/bin/
+```
+Ou instale via [Homebrew](Formula/tetris.rb):
+```bash
+brew install mvsoares/tetris/tetris
 ```
 
 ---
@@ -343,7 +429,7 @@ tetris/
 │   └── learn/            # Treino offline com alternativas simuladas e validação por seed
 ├── internal/
 │   ├── engine/           # Lógica pura do Tetris (100% desacoplada da UI)
-│   │   ├── board.go      # Grid 10x20, colisões, line clearing e wall kicks
+│   │   ├── board.go      # BitBoard 20xuint16, colisões, line clearing e bitwise masks
 │   │   ├── piece.go      # Definição e rotações dos 7 tetrominós (I, J, L, O, S, T, Z)
 │   │   ├── randomizer.go # Sistema de geração 7-Bag
 │   │   ├── game.go       # Loop do jogo, pontuação, níveis e estados
@@ -352,11 +438,37 @@ tetris/
 │   │   ├── beam.go       # Lookahead experimental de até 10 colocações
 │   │   ├── learned.go    # Modelo local, probabilidades e fallback
 │   │   └── learned_train.go # Simulações contrafactuais e ajuste offline
+│   ├── i18n/             # Internacionalização completa (EN, ES, PT-BR, FR, IT)
 │   ├── logger/           # Gravador assíncrono com canal e buffer bufio de 100 MB
 │   ├── simulator/        # Pool de workers concorrentes para partidas em paralelo
-│   └── ui/               # Renderização de terminal com Lipgloss e Bubble Tea
-├── models/               # Modelo JSON versionado e documentação
+│   ├── ui/               # Renderização de terminal com Lipgloss e Bubble Tea
+│   └── version/          # Controle centralizado de versão (v1.0.0) e build info
+├── packaging/            # Configurações de empacotamento nfpm (.deb, .rpm)
+├── scripts/              # Scripts de release, build multi-arch e instalador
+├── Formula/              # Fórmula Homebrew para macOS e Linux
+├── models/               # Modelo JSON versionado (move-risk.json)
 └── logs/                 # Destino dos datasets em JSON Lines (.jsonl)
+```
+
+---
+
+## ⚙️ Flags de Linha de Comando
+
+```bash
+tetris [flags]
+
+Flags:
+  -v, --version        Exibe a versão do Tetris (v1.0.0) e encerra
+  --lang string        Idioma da interface (english, spanish, pt-br, french, ita)
+  --idiom string       Alias para --lang
+  --learned            Ativar IA híbrida experimental com modelo treinado
+  --lookahead int      Lookahead experimental de colocações: 0 (v2) ou 1..10
+  --beam-width int     Largura do feixe no lookahead (1..64, padrão: 4)
+  --model string       Caminho para modelo de risco personalizado
+  --train              Executa simulações em background
+  --games int          Total de partidas no modo headless (padrão: 100)
+  --workers int        Número de workers paralelos (1 a 50)
+  --file string        Caminho do arquivo de log (.jsonl)
 ```
 
 ---

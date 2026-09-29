@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"tetris/internal/engine"
+	"tetris/internal/i18n"
 	"tetris/internal/simulator"
 	"tetris/internal/ui"
+	"tetris/internal/version"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,12 +27,45 @@ func main() {
 	beamWidth := flag.Int("beam-width", 4, "Experimental beam width (1..64)")
 	learned := flag.Bool("learned", false, "Ativar IA híbrida experimental")
 	modelFile := flag.String("model", "models/move-risk.json", "Modelo carregado uma vez na inicialização")
+	langFlag := flag.String("lang", "", "Idioma / Language (pt-br, en, es, fr, it, de, ru, ja, zh)")
+	idiomFlag := flag.String("idiom", "", "Alias para --lang (pt-br, en, es, fr, it, de, ru, ja, zh)")
+	showVersion := flag.Bool("version", false, "Exibe a versão do Tetris e encerra")
+	showVersionShort := flag.Bool("v", false, "Alias para --version")
+
 	flag.Parse()
+
+	if *showVersion || *showVersionShort {
+		fmt.Printf("tetris %s\n", version.Full())
+		return
+	}
+
+	selectedLang := i18n.LangPTBR
+	if *langFlag != "" {
+		selectedLang = i18n.ParseLanguage(*langFlag)
+	} else if *idiomFlag != "" {
+		selectedLang = i18n.ParseLanguage(*idiomFlag)
+	}
+
 	var model *engine.MoveModel
-	if loaded, err := engine.LoadMoveModel(*modelFile); err == nil {
-		model = loaded
-	} else if *learned || !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Modelo indisponível; usando fallback: %v\n", err)
+	modelCandidates := []string{*modelFile}
+	if *modelFile == "models/move-risk.json" {
+		modelCandidates = append(modelCandidates,
+			"/usr/share/tetris/models/move-risk.json",
+			"/usr/local/share/tetris/models/move-risk.json",
+		)
+	}
+
+	var lastModelErr error
+	for _, cand := range modelCandidates {
+		if loaded, err := engine.LoadMoveModel(cand); err == nil {
+			model = loaded
+			break
+		} else {
+			lastModelErr = err
+		}
+	}
+	if model == nil && *learned {
+		fmt.Fprintf(os.Stderr, "Modelo indisponível; usando fallback: %v\n", lastModelErr)
 	}
 	if *lookahead < 0 || *lookahead > 10 || *beamWidth < 1 || *beamWidth > 64 {
 		fmt.Fprintln(os.Stderr, "lookahead must be 0..10 and beam-width 1..64")
@@ -49,7 +84,7 @@ func main() {
 		return
 	}
 
-	m := ui.NewModelWithLearned(*lookahead, *beamWidth, model, *learned)
+	m := ui.NewModelWithLearnedAndLang(*lookahead, *beamWidth, model, *learned, selectedLang)
 	p := tea.NewProgram(
 		m,
 		tea.WithAltScreen(),       // Use alternate screen buffer
@@ -148,11 +183,10 @@ func runBackgroundTrain(workers int, totalGames int, logPath string, lookahead, 
 	fmt.Printf("⏱️  Tempo Total:       %.2fs\n", elapsed.Seconds())
 	fmt.Printf("🎮 Partidas Jogadas:  %d\n", finalProg.CompletedGames)
 	fmt.Printf("🕹️  Jogadas Geradas:   %d\n", finalProg.TotalMoves)
-	fmt.Printf("⚡ Média Throughput:  %.0f jogadas/seg\n", float64(finalProg.TotalMoves)/elapsed.Seconds())
-	fmt.Printf("💥 Taxa Geral Tetris: %.1f%%\n", tetrisRate)
-	fmt.Printf("🏆 Maior Pontuação:   %d pts\n", finalProg.HighScore)
-	fmt.Printf("📁 Dataset Salvo Em:  %s\n", logPath)
-	fmt.Println("----------------------------------------------------------------")
-	fmt.Printf("💡 Para analisar o dataset gerado: ./analyze -file %s\n", logPath)
+	fmt.Printf("💥 Tetrises Feitos:   %d\n", finalProg.TotalTetrises)
+	fmt.Printf("🧹 Linhas Limpas:     %d\n", finalProg.TotalLines)
+	fmt.Printf("⚡ Taxa de Tetris:    %.2f%%\n", tetrisRate)
+	fmt.Printf("🏆 Maior Pontuação:   %d\n", finalProg.HighScore)
+	fmt.Printf("⚡ Velocidade Média:  %.0f jogadas/s\n", float64(finalProg.TotalMoves)/elapsed.Seconds())
 	fmt.Println("================================================================")
 }

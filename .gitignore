@@ -4,6 +4,7 @@
 /analyze
 /analyze_losses
 /learn
+/dist/
 
 # Datasets and logs (keep folder via .gitkeep)
 *.jsonl
